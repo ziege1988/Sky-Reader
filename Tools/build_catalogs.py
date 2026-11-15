@@ -33,6 +33,7 @@ import struct
 import sys
 import time
 import urllib.request
+import urllib.error
 import zipfile
 
 UA = "SkyReader-catalog-builder/1.0"
@@ -75,8 +76,13 @@ def tap_query(adql, cache, name, source_dir=None):
     return fetch_any([f"{h}?{q}" for h in TAP_HOSTS], cache, name, source_dir, timeout=600, retries=1)
 
 
+DEAD_HOSTS = set()
+
+
 def fetch(url, cache, name, source_dir=None, timeout=120, retries=3):
-    """Download with simple caching. Returns bytes or None."""
+    """Download with simple caching. Returns bytes or None. Nicht erreichbare Hosts werden danach übersprungen."""
+    import urllib.parse
+    host = urllib.parse.urlparse(url).netloc
     if source_dir:
         p = os.path.join(source_dir, name)
         if os.path.exists(p):
@@ -88,6 +94,8 @@ def fetch(url, cache, name, source_dir=None, timeout=120, retries=3):
         if os.path.exists(p) and os.path.getsize(p) > 0:
             with open(p, "rb") as f:
                 return f.read()
+    if host in DEAD_HOSTS:
+        return None
     last = None
     for attempt in range(retries):
         try:
@@ -98,8 +106,15 @@ def fetch(url, cache, name, source_dir=None, timeout=120, retries=3):
                 with open(os.path.join(cache, name), "wb") as f:
                     f.write(data)
             return data
+        except urllib.error.HTTPError as e:
+            last = e
+            break  # Server antwortet – andere URL-Variante probieren
         except Exception as e:  # noqa
             last = e
+            if "timed out" in str(e) or "Connection refused" in str(e) or "Name or service" in str(e) or "unreachable" in str(e):
+                DEAD_HOSTS.add(host)
+                log(f"  Host nicht erreichbar, wird übersprungen: {host}")
+                break
             time.sleep(2 * (attempt + 1))
     log(f"WARNUNG: Download fehlgeschlagen {url}: {last}")
     return None
@@ -156,7 +171,7 @@ def load_tycho(cache, source_dir, maxmag):
     stars = []
     ok = True
     for i in range(20):
-        raw = fetch_any([m.format(i) for m in TYCHO_MIRRORS], cache, f"tyc2.dat.{i:02d}.gz", source_dir, timeout=60, retries=1)
+        raw = fetch_any([m.format(i) for m in TYCHO_MIRRORS], cache, f"tyc2.dat.{i:02d}.gz", source_dir, timeout=40, retries=1)
         if raw is None:
             ok = False
             break
@@ -363,7 +378,7 @@ def parse_tap_tsv(data):
 
 def load_vizier_catalog(cache, source_dir, table, fname, builder):
     urls = [p.format(host=h, table=table) for p in VIZIER_PATTERNS for h in VIZIER_HOSTS]
-    raw = fetch_any(urls, cache, fname, source_dir, timeout=90, retries=1)
+    raw = fetch_any(urls, cache, fname, source_dir, timeout=40, retries=1)
     rows = parse_vizier_tsv(raw) if raw else []
     if not rows:
         raw = tap_query(f'SELECT * FROM "{table}"', cache, fname + ".tap", source_dir)

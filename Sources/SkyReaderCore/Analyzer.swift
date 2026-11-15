@@ -198,7 +198,7 @@ public final class SkyAnalyzer: @unchecked Sendable {
         let summary = ObjectInfo(title: kind == .comet ? "Kometenaufnahme" : "Himmelsausschnitt", subtitle: "Astrometrische Lösung",
                                  facts: facts,
                                  scientific: "Die Position des Bildes am Himmel wurde durch Vergleich von \(sol.matchedStars) Sternen mit dem Sternkatalog bestimmt (mittlere Abweichung \(String(format: "%.1f", sol.rmsPixels * Double(factor))) Pixel).",
-                                 latest: "", layman: objects.isEmpty ? "In diesem Ausschnitt befinden sich keine katalogisierten Nebel, Galaxien oder Sternhaufen oberhalb der gewählten Anzeigeschwelle." : "Im Bild wurden \(objects.count) Objekte gefunden. Wähle rechts ein Objekt, um mehr darüber zu erfahren.")
+                                 latest: "", layman: objects.isEmpty ? "In diesem Ausschnitt befinden sich keine katalogisierten Nebel, Galaxien oder Sternhaufen oberhalb der gewählten Anzeigeschwelle." : "Im Bild wurden \(objects.count) Objekte gefunden. Klicke auf eine Markierung im Bild oder auf eine Karte unten, um mehr zu erfahren.")
         ok("Analyse abgeschlossen – \(objects.count) Objekte.")
         return AnalysisResult(kind: kind, imageWidth: full.width, imageHeight: full.height, objects: objects,
                               summary: summary, wcs: wcsFull, warnings: [])
