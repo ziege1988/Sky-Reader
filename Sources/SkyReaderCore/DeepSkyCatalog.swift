@@ -174,9 +174,14 @@ public final class DeepSkyCatalog: @unchecked Sendable {
             let dup = res.contains { r in
                 let d = hypot(r.1 - e.1, r.2 - e.2)
                 let ratio = e.3 / r.3
-                return d < 0.35 * max(r.3, e.3) + 3 && ratio > 0.5 && ratio < 2 && r.0.type.category == e.0.type.category
+                return d < 0.5 * max(r.3, e.3) + 3 && ratio > 0.5 && ratio < 2 && r.0.type.category == e.0.type.category
             }
             if dup { continue }
+            // Unterstrukturen (vdB/Ced/LBN) innerhalb eines bereits beschriebenen Hauptobjekts nur bei „Alle erkennbaren“
+            if density != .many && ["vdB", "Ced", "LBN"].contains(e.0.src) && !isHighlight(e.0) {
+                let inside = res.contains { r in isHighlight(r.0) && hypot(r.1 - e.1, r.2 - e.2) < r.3 && e.3 < r.3 * 0.7 }
+                if inside { continue }
+            }
             res.append((e.0, e.1, e.2, e.3))
         }
         return res
