@@ -35,16 +35,25 @@ jobs:
         run: swift test -c release
       - name: App bauen
         run: Scripts/build_app.sh ${{ github.run_number }}
-      - name: Engine an Testbild prüfen
+      - name: Oberflächen-Selbsttest
+        continue-on-error: true
         run: |
-          swift build -c release --product skyreader-cli >/dev/null
-          echo "skyreader-cli bereit"
+          mkdir -p selftest
+          ( "dist/Sky Reader.app/Contents/MacOS/SkyReader" --selftest Resources/Images/splash.jpg "$PWD/selftest" & PID=$!; \
+            for i in $(seq 1 150); do kill -0 $PID 2>/dev/null || break; sleep 1; done; kill $PID 2>/dev/null || true )
+          ls -la selftest
+          cat selftest/report.txt || true
       - uses: actions/upload-artifact@v4
         with:
           name: SkyReader-${{ github.run_number }}
           path: |
             dist/*.zip
             dist/*.dmg
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: Selbsttest-${{ github.run_number }}
+          path: selftest/
       - name: Release veröffentlichen
         if: github.ref_name == github.event.repository.default_branch || (github.event_name == 'workflow_dispatch' && inputs.release)
         env:

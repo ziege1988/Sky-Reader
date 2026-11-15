@@ -165,7 +165,13 @@ struct ImageArea: View {
         .background(Color.black.opacity(0.35))
     }
 
-    var dropHint: String { "Analyse abgebrochen – Bild erneut ablegen oder „Neu analysieren“ wählen." }
+    var dropHint: String {
+        switch state.phase {
+        case .failed: return "Analyse fehlgeschlagen – Details rechts. Neues Bild ablegen oder Einstellungen anpassen."
+        case .cancelled: return "Analyse abgebrochen – Bild erneut ablegen oder „Neu analysieren“ wählen."
+        default: return "Bild hierher ziehen, um es zu analysieren."
+        }
+    }
 
     func resetZoom() { zoom = 1; baseZoom = 1; offset = .zero; baseOffset = .zero }
 

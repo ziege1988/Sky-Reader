@@ -145,7 +145,7 @@ public final class SkyAnalyzer: @unchecked Sendable {
         let wcsFull = sol.wcs.scaled(by: Double(factor), width: full.width, height: full.height)
         let c = wcsFull.center, fs = wcsFull.fieldSize, o = wcsFull.orientation
         ok(String(format: "Bildmitte: RA %@, Dec %@", formatRA(c.ra), formatDec(c.dec)))
-        info(String(format: "Bildfeld %.2f° × %.2f°, %.2f″/Pixel, Drehung %.1f°%@", fs.w, fs.h, wcsFull.pixelScaleArcsec, o.rotation, o.mirrored ? ", gespiegelt" : ""))
+        info("Bildfeld \(formatDegrees(fs.w)) × \(formatDegrees(fs.h)), " + String(format: "%.2f″/Pixel", wcsFull.pixelScaleArcsec).replacingOccurrences(of: ".", with: ",") + ", Drehung \(formatDegrees(o.rotation, digits: 1))" + (o.mirrored ? ", gespiegelt" : ""))
         try check()
 
         step("Objekte im Bildfeld werden gesucht", 0.8)

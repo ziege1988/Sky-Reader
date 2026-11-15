@@ -70,6 +70,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     }
 
     private func showSplash() {
+        if CommandLine.arguments.contains("--selftest"), let out = CommandLine.arguments.last {
+            // Splash zusätzlich als Bild ablegen (Selbsttest)
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) {
+                MainActor.assumeIsolated {
+                    if let v = self.splashWindow?.contentView { SelfTest.snapshot(v, to: URL(fileURLWithPath: out).appendingPathComponent("splash.png")) }
+                }
+            }
+        }
         let screen = preferredScreen()
         let size = NSSize(width: 620, height: 400)
         let frame = NSRect(x: screen.visibleFrame.midX - size.width / 2, y: screen.visibleFrame.midY - size.height / 2,
@@ -125,6 +133,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         })
         if let u = pendingOpen.first { state.load(url: u) }
         pendingOpen = []
+        if let i = CommandLine.arguments.firstIndex(of: "--selftest"), CommandLine.arguments.count > i + 2 {
+            SelfTest.run(image: URL(fileURLWithPath: CommandLine.arguments[i + 1]),
+                         out: URL(fileURLWithPath: CommandLine.arguments[i + 2]), state: state, window: w)
+            return
+        }
         if updater.autoCheck {
             let up = updater
             DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { MainActor.assumeIsolated { up.check(userInitiated: false) } }
