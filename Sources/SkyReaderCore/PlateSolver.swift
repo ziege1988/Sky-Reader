@@ -67,7 +67,6 @@ public final class PlateSolver: @unchecked Sendable {
                 let expectedScale = c / cellPx  // Grad/Pixel bei passender Zuordnung
                 let fov = expectedScale * longSide
                 if fov > 120 || fov < 0.2 { continue }
-                if let hint = fieldHintDeg, fov > hint * 1.6 { continue }
                 let key = "\(c)-\(g)"
                 if tried.contains(key) { continue }
                 tried.insert(key)

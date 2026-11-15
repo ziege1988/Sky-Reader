@@ -1,0 +1,61 @@
+name: Build & Release
+
+# Baut Sky Reader auf macOS (Apple Silicon). Auf dem Standard-Branch (oder manuell) wird
+# zusätzlich ein GitHub-Release v<VERSION> mit ZIP (für das Auto-Update) und DMG veröffentlicht.
+on:
+  push:
+    branches: ['**']
+    paths-ignore: ['**.md', 'Tools/**', '.github/workflows/catalogs.yml']
+  workflow_dispatch:
+    inputs:
+      release:
+        description: 'Release veröffentlichen'
+        type: boolean
+        default: true
+
+permissions:
+  contents: write
+
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: macos-15
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - name: Werkzeuge
+        run: |
+          sudo xcode-select -s /Applications/Xcode_16.4.app 2>/dev/null || true
+          xcodebuild -version
+          swift --version
+      - name: Engine testen
+        run: swift test -c release
+      - name: App bauen
+        run: Scripts/build_app.sh ${{ github.run_number }}
+      - name: Engine an Testbild prüfen
+        run: |
+          swift build -c release --product skyreader-cli >/dev/null
+          echo "skyreader-cli bereit"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: SkyReader-${{ github.run_number }}
+          path: |
+            dist/*.zip
+            dist/*.dmg
+      - name: Release veröffentlichen
+        if: github.ref_name == github.event.repository.default_branch || (github.event_name == 'workflow_dispatch' && inputs.release)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          V="$(tr -d ' \n' < VERSION)"
+          TAG="v$V"
+          awk "/^## \\[?$V/{f=1;next} /^## /{if(f)exit} f" CHANGELOG.md > notes.md || true
+          [ -s notes.md ] || echo "Sky Reader $V" > notes.md
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" dist/*.zip dist/*.dmg --clobber
+          else
+            gh release create "$TAG" dist/*.zip dist/*.dmg --title "Sky Reader $V" --notes-file notes.md --target "$GITHUB_SHA" --latest
+          fi
