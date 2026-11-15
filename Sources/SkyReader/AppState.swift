@@ -93,32 +93,32 @@ final class AppState: ObservableObject {
         let flag = CancelFlag()
         cancelFlag = flag
         let settings = analysisSettings
-        Task.detached(priority: .userInitiated) { [weak self] in
+        Task.detached(priority: .userInitiated) { [self] in
             do {
                 let li = try ImageLoader.load(url)
                 await MainActor.run {
-                    self?.loaded = li
-                    self?.displayImage = NSImage(cgImage: li.cgImage, size: NSSize(width: li.cgImage.width, height: li.cgImage.height))
-                    self?.phase = .analyzing
+                    self.loaded = li
+                    self.displayImage = NSImage(cgImage: li.cgImage, size: NSSize(width: li.cgImage.width, height: li.cgImage.height))
+                    self.phase = .analyzing
                 }
                 if flag.isCancelled { throw CancelledError() }
                 let res = try SkyAnalyzer().analyze(image: li.gray, metadata: li.metadata, settings: settings, log: { entry in
-                    Task { @MainActor in self?.receive(entry) }
+                    Task { @MainActor in self.receive(entry) }
                 }, isCancelled: { flag.isCancelled })
                 await MainActor.run {
                     guard !flag.isCancelled else { return }
-                    self?.pendingResult = res
-                    self?.progress = 1
-                    self?.currentStep = "Analyse abgeschlossen"
-                    self?.phase = .finished
+                    self.pendingResult = res
+                    self.progress = 1
+                    self.currentStep = "Analyse abgeschlossen"
+                    self.phase = .finished
                 }
             } catch is CancelledError {
-                await MainActor.run { self?.phase = .cancelled; self?.append(.warning, "Analyse abgebrochen.") }
+                await MainActor.run { self.phase = .cancelled; self.append(.warning, "Analyse abgebrochen.") }
             } catch {
                 await MainActor.run {
-                    self?.append(.error, error.localizedDescription)
-                    self?.phase = .failed(error.localizedDescription)
-                    self?.currentStep = "Analyse fehlgeschlagen"
+                    self.append(.error, error.localizedDescription)
+                    self.phase = .failed(error.localizedDescription)
+                    self.currentStep = "Analyse fehlgeschlagen"
                 }
             }
         }

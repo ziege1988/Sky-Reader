@@ -169,14 +169,20 @@ struct ExportView: View {
         guard p.runModal() == .OK, let url = p.url else { return }
         busy = true
         let opts = options, hid = hidden, fmt = format, q = quality, cg = l.cgImage
-        Task.detached(priority: .userInitiated) {
-            let img = ExportRenderer.render(image: cg, result: r, hidden: hid, options: opts, scale: 1)
-            var err: Error?
-            if let img { do { try ExportRenderer.write(img, to: url, format: fmt, quality: q) } catch { err = error } }
-            await MainActor.run {
-                busy = false
-                if let err { NSAlert(error: err).runModal() }
-                else { message = "Gespeichert: \(url.lastPathComponent)"; NSWorkspace.shared.activateFileViewerSelecting([url]) }
+        Task {
+            let err: String? = await Task.detached(priority: .userInitiated) { () -> String? in
+                guard let img = ExportRenderer.render(image: cg, result: r, hidden: hid, options: opts, scale: 1) else {
+                    return "Das Bild konnte nicht erzeugt werden (zu wenig Arbeitsspeicher?)."
+                }
+                do { try ExportRenderer.write(img, to: url, format: fmt, quality: q); return nil }
+                catch { return error.localizedDescription }
+            }.value
+            busy = false
+            if let err {
+                let a = NSAlert(); a.messageText = "Export fehlgeschlagen"; a.informativeText = err; a.runModal()
+            } else {
+                message = "Gespeichert: \(url.lastPathComponent)"
+                NSWorkspace.shared.activateFileViewerSelecting([url])
             }
         }
     }

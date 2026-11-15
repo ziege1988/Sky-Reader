@@ -43,7 +43,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             _ = try? DeepSkyCatalog.shared()
             _ = Descriptions.shared
         }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 2.4) { [weak self] in self?.showMain() }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2.4) { MainActor.assumeIsolated { self.showMain() } }
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { true }
@@ -117,15 +117,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             ctx.duration = 0.45
             w.animator().alphaValue = 1
             splashWindow?.animator().alphaValue = 0
-        }, completionHandler: { [weak self] in
+        }, completionHandler: {
             Task { @MainActor in
-                self?.splashWindow?.orderOut(nil)
-                self?.splashWindow = nil
+                self.splashWindow?.orderOut(nil)
+                self.splashWindow = nil
             }
         })
         if let u = pendingOpen.first { state.load(url: u) }
         pendingOpen = []
-        if updater.autoCheck { DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { [weak self] in self?.updater.check(userInitiated: false) } }
+        if updater.autoCheck {
+            let up = updater
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { MainActor.assumeIsolated { up.check(userInitiated: false) } }
+        }
     }
 
     func windowDidMove(_ notification: Notification) { mainWindow?.saveFrame(usingName: "SkyReaderMain") }
