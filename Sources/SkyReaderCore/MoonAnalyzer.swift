@@ -16,6 +16,9 @@ public struct DetectedCrater: Sendable {
     public var x: Double, y: Double, r: Double
     public var strength: Double
     public var shadowFraction: Double
+    /// Kleine Halbachse und Lage der großen Achse (randnahe Krater erscheinen als Ellipsen)
+    public var minorRadius: Double = 0
+    public var angleDeg: Double = 0
 }
 
 public enum MoonAnalyzer {
@@ -164,118 +167,290 @@ public enum MoonAnalyzer {
 
     // MARK: Krater
 
-    /// Geschätzte Richtung zur Sonne in Bildkoordinaten (Einheitsvektor): vom unbeleuchteten zum beleuchteten Teil
-    public static func sunDirection(_ img: GrayImage, det: MoonDetection) -> (Double, Double) {
-        let s = img.downsampled(by: max(1, min(img.width, img.height) / 200))
-        let bl = s.boxBlurred(radius: max(3, min(s.width, s.height) / 8))
-        var sx = 0.0, sy = 0.0
-        for y in 1..<(s.height - 1) { for x in 1..<(s.width - 1) {
-            let v = s[x, y]
-            if v < det.threshold * 0.5 { continue }  // nur Mondfläche
-            sx += Double(bl[x + 1, y] - bl[x - 1, y]); sy += Double(bl[x, y + 1] - bl[x, y - 1])
-        } }
-        // Die Helligkeit steigt zur Sonne hin (weg vom Terminator)
-        let l = hypot(sx, sy)
-        return l > 1e-9 ? (sx / l, sy / l) : (-1, 0)
+    // MARK: Krater (Schatten-/Licht-Regionen)
+
+    /// Momentensummen einer zusammenhängenden Region
+    struct Region {
+        var n = 0.0, sx = 0.0, sy = 0.0, sxx = 0.0, syy = 0.0, sxy = 0.0, sL = 0.0
+        var sxz = 0.0, syz = 0.0, sz = 0.0
+        mutating func add(_ x: Double, _ y: Double, _ l: Double) {
+            n += 1; sx += x; sy += y; sxx += x * x; syy += y * y; sxy += x * y; sL += l
+            let z = x * x + y * y; sxz += x * z; syz += y * z; sz += z
+        }
+        static func + (a: Region, b: Region) -> Region {
+            var r = a
+            r.n += b.n; r.sx += b.sx; r.sy += b.sy; r.sxx += b.sxx; r.syy += b.syy; r.sxy += b.sxy; r.sL += b.sL
+            r.sxz += b.sxz; r.syz += b.syz; r.sz += b.sz
+            return r
+        }
+        var cx: Double { sx / n }
+        var cy: Double { sy / n }
+        var meanL: Double { sL / n }
+        /// Ellipse gleicher Momente: Halbachsen A ≥ B, Winkel der großen Achse
+        var ellipse: (A: Double, B: Double, angle: Double) {
+            let vxx = sxx / n - cx * cx, vyy = syy / n - cy * cy, vxy = sxy / n - cx * cy
+            let tr = vxx + vyy, det = vxx * vyy - vxy * vxy
+            let disc = max(0, tr * tr / 4 - det).squareRoot()
+            let l1 = max(tr / 2 + disc, 0.25), l2 = max(tr / 2 - disc, 0.25)
+            return (2 * l1.squareRoot(), 2 * l2.squareRoot(), 0.5 * atan2(2 * vxy, vxx - vyy))
+        }
+        var fill: Double { let e = ellipse; return n / (.pi * e.A * e.B) }
+        /// Algebraischer Kreisfit (Kasa) an alle Pixel der Region
+        var kasa: (cx: Double, cy: Double, r: Double)? {
+            let A = [sxx, sxy, sx, sxy, syy, sy, sx, sy, n]
+            guard let s = solveLinear(A, [sxz, syz, sz], n: 3) else { return nil }
+            let cx = s[0] / 2, cy = s[1] / 2, r2 = s[2] + cx * cx + cy * cy
+            return r2 > 0 ? (cx, cy, r2.squareRoot()) : nil
+        }
     }
 
-    /// Kratererkennung über das Licht-Schatten-Muster: Schatten auf der sonnenzugewandten Innenseite,
-    /// beleuchtete Innenwand gegenüber. Mehrskalig über eine Bildpyramide.
-    public static func detectCraters(_ img: GrayImage, det: MoonDetection, limb: LimbCircle?, maxCount: Int) -> [DetectedCrater] {
-        let sun = sunDirection(img, det: det)
-        var all: [DetectedCrater] = []
-        var f = 1
-        while Double(min(img.width, img.height)) / Double(f) > 48 {
-            let lv = img.downsampled(by: f)
-            let found = detectCratersLevel(lv, full: img, f: f, det: det, limb: limb, sun: sun, rMin: f == 1 ? 3.5 : 5, rMax: 11)
-            all += found
-            f *= 2
+    /// Zusammenhangskomponenten einer Maske mit Momenten
+    static func regions(_ mask: [Bool], _ w: Int, _ h: Int, L: [Float], minArea: Int) -> [Region] {
+        var seen = [Bool](repeating: false, count: mask.count)
+        var out: [Region] = []
+        var stack: [Int] = []
+        for s in 0..<mask.count where mask[s] && !seen[s] {
+            var r = Region()
+            stack.removeAll(keepingCapacity: true)
+            stack.append(s); seen[s] = true
+            while let p = stack.popLast() {
+                let x = p % w, y = p / w
+                r.add(Double(x), Double(y), Double(L[p]))
+                if x > 0 { let q = p - 1; if mask[q] && !seen[q] { seen[q] = true; stack.append(q) } }
+                if x < w - 1 { let q = p + 1; if mask[q] && !seen[q] { seen[q] = true; stack.append(q) } }
+                if y > 0 { let q = p - w; if mask[q] && !seen[q] { seen[q] = true; stack.append(q) } }
+                if y < h - 1 { let q = p + w; if mask[q] && !seen[q] { seen[q] = true; stack.append(q) } }
+            }
+            if Int(r.n) >= minArea { out.append(r) }
         }
-        all.sort { $0.strength > $1.strength }
-        var out: [DetectedCrater] = []
-        for c in all {
-            if out.contains(where: { o in
-                let d = hypot(o.x - c.x, o.y - c.y)
-                let ratio = min(o.r, c.r) / max(o.r, c.r)
-                return (ratio > 0.5 && d < max(o.r, c.r) * 0.8) || (d < max(o.r, c.r) * 0.5)
-            }) { continue }
-            out.append(c)
-        }
-        if maxCount <= 15 {
-            // „Nur die größten“: große, deutliche Krater (Stärke × Größe)
-            let strong = out.filter { $0.strength >= 0.3 }
-            out = strong.sorted { $0.strength * $0.r > $1.strength * $1.r }
-        } else {
-            out = out.filter { $0.strength >= 0.25 }
-        }
-        out = Array(out.prefix(maxCount))
-        out.sort { $0.r > $1.r }
         return out
     }
 
     static func gauss(_ img: GrayImage, sigma: Double) -> GrayImage {
-        let r = max(1, Int((sigma * sigma / 3 * 4 + 1).squareRoot().rounded() / 2 + 0.5))
+        let r = max(1, Int((sigma * sigma + 1).squareRoot().rounded()))
         return img.boxBlurred(radius: r).boxBlurred(radius: r).boxBlurred(radius: r)
     }
 
-    static func detectCratersLevel(_ img: GrayImage, full: GrayImage, f: Int, det: MoonDetection, limb: LimbCircle?,
-                                   sun: (Double, Double), rMin: Double, rMax: Double) -> [DetectedCrater] {
-        let w = img.width, h = img.height
+    /// Ergebnis der Beleuchtungsanalyse (für Log und Tests)
+    public struct CraterScan: Sendable {
+        public var craters: [DetectedCrater]
+        public var sunAngleDeg: Double
+        public var sunFromLimb: Bool
+    }
+
+    /// Kratererkennung über Licht und Schatten:
+    /// 1. Helligkeit relativ zur lokalen Umgebung (L), Schatten- und Lichtregionen auf mehreren Schwellen
+    /// 2. Sonnenrichtung: Achse aus benachbarten Schatten/Licht-Paaren, Vorzeichen über den beleuchteten Mondrand
+    /// 3. Krater = kompakter Schatten + beleuchtete Innenwand auf der sonnenabgewandten Seite (Ellipse, da randnah verkürzt)
+    /// 4. Große, flache Krater: Schattensichel + gegenüberliegende Lichtsichel auf gemeinsamem Kreis
+    public static func scanCraters(_ input: GrayImage, maxCount: Int) -> CraterScan {
+        let (img, f) = input.limited(maxDimension: 1300)
+        let w = img.width, h = img.height, n = w * h
         let ff = Double(f)
-        let floorL = det.moonLevel * 0.12
-        var out: [DetectedCrater] = []
-        var r = rMin
-        while r <= rMax {
-            let inner = gauss(img, sigma: r * 0.38)
-            let outer = gauss(img, sigma: r * 1.6)
-            let off = r * 0.55
-            let ox = sun.0 * off, oy = sun.1 * off
-            var resp = [Float](repeating: 0, count: w * h)
-            let m = Int(r * 1.3) + 2
-            if w - 2 * m < 3 || h - 2 * m < 3 { break }
-            for y in m..<(h - m) {
-                for x in m..<(w - m) {
-                    let ctx = outer[x, y]
-                    if ctx < det.threshold * 0.35 { continue }
-                    let bright = inner.sample(Double(x) - ox, Double(y) - oy)   // Innenwand gegenüber der Sonne
-                    let shadow = inner.sample(Double(x) + ox, Double(y) + oy)   // Schatten auf Sonnenseite
-                    resp[y * w + x] = (bright - shadow) / (ctx + floorL)
-                }
+        // Normierung
+        var sample = stride(from: 0, to: n, by: 7).map { img.pixels[$0] }
+        sample.sort()
+        let white = max(sample[Int(Double(sample.count - 1) * 0.998)], 1e-3)
+        var I = img
+        for k in 0..<n { I.pixels[k] = min(1.2, I.pixels[k] / white) }
+        let sky = Double(sample[Int(Double(sample.count - 1) * 0.02)] / white)
+        let otsuThr = otsu(I.pixels)
+        var litSum = 0.0, litN = 0.0
+        for v in I.pixels where v > otsuThr { litSum += Double(v); litN += 1 }
+        let lit = litN > 0 ? litSum / litN : 0.5
+        // Mondmaske (inkl. dunkler Maria), Löcher füllen
+        let bl = I.boxBlurred(radius: max(4, min(w, h) / 60))
+        let mThr = Float(sky + 0.12 * (lit - sky))
+        var moon = bl.pixels.map { $0 > mThr }
+        moon = fillHoles(moon, w, h)
+        // Innenbereich (8 px Abstand zum Rand)
+        var mf = GrayImage(width: w, height: h, pixels: moon.map { $0 ? 1 : 0 })
+        mf = mf.boxBlurred(radius: 8)
+        let interior = mf.pixels.map { $0 > 0.999 }
+        // L = geglättetes Bild / großräumiger Hintergrund
+        let Is = I.boxBlurred(radius: 1)
+        var meanMoon = 0.0, cnt = 0.0
+        for k in 0..<n where moon[k] { meanMoon += Double(I.pixels[k]); cnt += 1 }
+        meanMoon /= max(cnt, 1)
+        var filled = I
+        for k in 0..<n where !moon[k] { filled.pixels[k] = Float(meanMoon) }
+        let Bg = gauss(filled, sigma: Double(min(w, h)) / 14)
+        var L = [Float](repeating: 1, count: n)
+        for k in 0..<n { L[k] = Is.pixels[k] / (Bg.pixels[k] + 1e-3) }
+        let minDim = Double(min(w, h))
+
+        func masked(_ pred: (Float) -> Bool) -> [Bool] { (0..<n).map { interior[$0] && pred(L[$0]) } }
+        // Schatten- und Lichtregionen
+        var darks: [Region] = [], arcsSrc: [Region] = []
+        for t in [0.45, 0.55, 0.65, 0.75, 0.85] as [Float] {
+            for r in regions(masked { $0 < t }, w, h, L: L, minArea: 12) {
+                let e = r.ellipse
+                if r.fill > 0.55 && e.A < minDim / 4 && e.A / e.B < 4.5 { darks.append(r) }
+                else if [0.55, 0.7, 0.85].contains(t) && r.n >= 25 { arcsSrc.append(r) }
             }
-            for y in (m + 1)..<(h - m - 1) {
-                for x in (m + 1)..<(w - m - 1) {
-                    let v = resp[y * w + x]
-                    if v < 0.2 { continue }
-                    var isMax = true
-                    let nb = max(1, Int(r * 0.6))
-                    loop: for dy in -nb...nb { for dx in -nb...nb where dx != 0 || dy != 0 {
-                        let yy = y + dy, xx = x + dx
-                        if yy < 0 || xx < 0 || yy >= h || xx >= w { continue }
-                        if resp[yy * w + xx] > v { isMax = false; break loop }
-                    } }
-                    if !isMax { continue }
-                    // Kontrast prüfen: Schattenseite dunkler als Umgebung
-                    let ctx = outer[x, y]
-                    let shadow = inner.sample(Double(x) + ox, Double(y) + oy)
-                    if shadow > ctx * 0.97 { continue }
-                    let rr = r * ff
-                    let cx = Double(x) * ff + (ff - 1) / 2 + sun.0 * rr * 0.15, cy = Double(y) * ff + (ff - 1) / 2 + sun.1 * rr * 0.15
-                    if let l = limb, hypot(cx - l.cx, cy - l.cy) > l.r - rr * 1.15 { continue }
-                    // Umgebung überwiegend Mondfläche
-                    var inside = 0
-                    for k in 0..<12 {
-                        let a = Double(k) / 12 * 2 * .pi
-                        let px = Int(cx + cos(a) * rr * 1.4), py = Int(cy + sin(a) * rr * 1.4)
-                        if px >= 0, py >= 0, px < full.width, py < full.height, det.mask[py * full.width + px] { inside += 1 }
-                    }
-                    if inside < 10 { continue }
-                    let shadowFrac = Double(max(0, min(1, (ctx - shadow) / max(ctx, 1e-4))))
-                    out.append(DetectedCrater(x: cx, y: cy, r: rr, strength: Double(v), shadowFraction: shadowFrac))
-                }
-            }
-            r *= 1.15
         }
-        return out
+        var brights: [Region] = []
+        for t in [1.08, 1.18, 1.3, 1.45] as [Float] {
+            for r in regions(masked { $0 > t }, w, h, L: L, minArea: 6) {
+                let e = r.ellipse
+                if e.A < minDim / 4 && e.A / e.B < 6 { brights.append(r) }
+            }
+        }
+        // Sonnenachse aus nahen Paaren (Winkelverdopplung)
+        var c2 = 0.0, s2 = 0.0
+        for d in darks {
+            let ed = d.ellipse
+            guard ed.A < minDim / 12 else { continue }
+            var best: (Double, Region)?
+            for b in brights where b.ellipse.A < 2.5 * ed.A {
+                let dist = hypot(b.cx - d.cx, b.cy - d.cy)
+                if dist < 2.2 * ed.A, dist > 1, best == nil || dist < best!.0 { best = (dist, b) }
+            }
+            guard let b = best?.1 else { continue }
+            let a = atan2(d.cy - b.cy, d.cx - b.cx)
+            c2 += cos(2 * a); s2 += sin(2 * a)
+        }
+        let axis = 0.5 * atan2(s2, c2)
+        // Vorzeichen: zum sichtbaren, beleuchteten Mondrand hin – sonst entlang des Helligkeitsanstiegs
+        let skyThr = Float(sky + 0.06 * (lit - sky))
+        var ex = 0.0, ey = 0.0, en = 0.0, mx = 0.0, my = 0.0, mn = 0.0
+        let bl5 = I.boxBlurred(radius: 2)
+        for y in stride(from: 3, to: h - 3, by: 2) {
+            for x in stride(from: 3, to: w - 3, by: 2) {
+                let k = y * w + x
+                guard moon[k] else { continue }
+                mx += Double(x); my += Double(y); mn += 1
+                var nearSky = false
+                for (dx, dy) in [(3, 0), (-3, 0), (0, 3), (0, -3)] {
+                    let q = (y + dy) * w + x + dx
+                    if !moon[q] && bl5.pixels[q] < skyThr { nearSky = true }
+                }
+                if nearSky { ex += Double(x); ey += Double(y); en += 1 }
+            }
+        }
+        var refDir: Double
+        var fromLimb = false
+        if en > 25 && mn > 0 {
+            refDir = atan2(ey / en - my / mn, ex / en - mx / mn); fromLimb = true
+        } else {
+            let g = gauss(I, sigma: minDim / 8)
+            var gx = 0.0, gy = 0.0
+            for y in stride(from: 1, to: h - 1, by: 3) { for x in stride(from: 1, to: w - 1, by: 3) where moon[y * w + x] {
+                gx += Double(g[x + 1, y] - g[x - 1, y]); gy += Double(g[x, y + 1] - g[x, y - 1])
+            } }
+            refDir = atan2(gy, gx)
+        }
+        func angDiff(_ a: Double, _ b: Double) -> Double { abs(atan2(sin(a - b), cos(a - b))) }
+        let sunA = angDiff(axis, refDir) <= angDiff(axis + .pi, refDir) ? axis : axis + .pi
+        let sx = cos(sunA), sy = sin(sunA)
+
+        // Kraterhypothesen
+        struct Cand { var x, y, A, B, angle, score: Double }
+        var cands: [Cand] = []
+        for d in darks {
+            let ed = d.ellipse
+            var best: (Double, Region)?
+            for b in brights {
+                let vx = b.cx - d.cx, vy = b.cy - d.cy, dist = hypot(vx, vy)
+                if dist < 0.3 * ed.A || dist > 2.5 * ed.A { continue }
+                let cosang = -(vx * sx + vy * sy) / dist
+                if cosang < 0.5 { continue }
+                let sc = cosang * min(1, b.n / (0.15 * d.n + 1))
+                if best == nil || sc > best!.0 { best = (sc, b) }
+            }
+            let shadow = max(0, 1 - d.meanL)
+            var region = d
+            var score: Double
+            if let (sc, b) = best {
+                score = shadow * sc * d.fill * min(1.5, (b.meanL - 1) * 4 + 0.5)
+                region = d + b
+            } else {
+                score = shadow * 0.35 * d.fill
+            }
+            let e = region.ellipse
+            if e.A / e.B > 3.2 { continue }
+            cands.append(Cand(x: region.cx, y: region.cy, A: e.A, B: e.B, angle: e.angle, score: score))
+        }
+        // Große Krater aus Schattensicheln
+        for d in arcsSrc {
+            let ed = d.ellipse
+            guard ed.A >= 6, ed.A <= minDim / 5, let fit = d.kasa else { continue }
+            let R = fit.r
+            if R < 1.2 * ed.B || R > 2.5 * ed.A || R > minDim / 4 { continue }
+            let vx = fit.cx - d.cx, vy = fit.cy - d.cy, vn = hypot(vx, vy)
+            if vn < 0.3 * R || (-(vx * sx + vy * sy)) / vn < 0.55 { continue }
+            var hits = 0, tot = 0
+            for k in 0..<24 {
+                let a = Double(k) / 24 * 2 * .pi
+                let ux = cos(a), uy = sin(a)
+                if -(ux * sx + uy * sy) < 0.2 { continue }
+                tot += 1
+                for dr in stride(from: -0.2, through: 0.15, by: 0.07) {
+                    let px = Int(fit.cx + ux * R * (1 + dr)), py = Int(fit.cy + uy * R * (1 + dr))
+                    if px >= 0, py >= 0, px < w, py < h, L[py * w + px] > 1.08 { hits += 1; break }
+                }
+            }
+            let cov = Double(hits) / Double(max(1, tot))
+            let ix = Int(fit.cx), iy = Int(fit.cy)
+            guard cov >= 0.45, ix >= 0, iy >= 0, ix < w, iy < h, moon[iy * w + ix] else { continue }
+            cands.append(Cand(x: fit.cx, y: fit.cy, A: R, B: R, angle: 0, score: cov * (1 - d.meanL) * 1.2))
+        }
+        // Nicht-Maximum-Unterdrückung
+        cands.sort { $0.score * pow($0.A, 0.5) > $1.score * pow($1.A, 0.5) }
+        var keep: [Cand] = []
+        for c in cands where c.score >= 0.05 {
+            if keep.contains(where: { hypot($0.x - c.x, $0.y - c.y) < 0.7 * max($0.A, c.A) }) { continue }
+            keep.append(c)
+        }
+        if maxCount <= 15 {
+            keep = keep.filter { $0.score > 0.12 }
+            keep.sort { a, b in
+                a.score * (a.A * a.B).squareRoot() * min(1, 2 / (a.A / a.B)) > b.score * (b.A * b.B).squareRoot() * min(1, 2 / (b.A / b.B))
+            }
+        }
+        keep = Array(keep.prefix(maxCount))
+        let craters = keep.map { c in
+            DetectedCrater(x: (c.x + 0.5) * ff - 0.5, y: (c.y + 0.5) * ff - 0.5, r: c.A * ff, strength: c.score,
+                           shadowFraction: 0, minorRadius: c.B * ff, angleDeg: rad2deg(c.angle))
+        }.sorted { $0.r > $1.r }
+        var deg = rad2deg(sunA).truncatingRemainder(dividingBy: 360); if deg < 0 { deg += 360 }
+        return CraterScan(craters: craters, sunAngleDeg: deg, sunFromLimb: fromLimb)
+    }
+
+    static func otsu(_ px: [Float]) -> Float {
+        var hist = [Double](repeating: 0, count: 256)
+        for v in stride(from: 0, to: px.count, by: 3) { hist[min(255, max(0, Int(px[v] / 1.2 * 255)))] += 1 }
+        let total = hist.reduce(0, +)
+        var sumAll = 0.0
+        for k in 0..<256 { sumAll += Double(k) * hist[k] }
+        var wB = 0.0, sumB = 0.0, best = 0.0, thr = 0
+        for k in 0..<256 {
+            wB += hist[k]; if wB == 0 { continue }
+            let wF = total - wB; if wF == 0 { break }
+            sumB += Double(k) * hist[k]
+            let mB = sumB / wB, mF = (sumAll - sumB) / wF
+            let b = wB * wF * (mB - mF) * (mB - mF)
+            if b > best { best = b; thr = k }
+        }
+        return Float(thr) / 255 * 1.2
+    }
+
+    /// Löcher füllen: alles, was nicht vom Bildrand über Nicht-Mond erreichbar ist, gehört zum Mond
+    static func fillHoles(_ m: [Bool], _ w: Int, _ h: Int) -> [Bool] {
+        var outside = [Bool](repeating: false, count: m.count)
+        var stack: [Int] = []
+        for x in 0..<w { for y in [0, h - 1] { let k = y * w + x; if !m[k] && !outside[k] { outside[k] = true; stack.append(k) } } }
+        for y in 0..<h { for x in [0, w - 1] { let k = y * w + x; if !m[k] && !outside[k] { outside[k] = true; stack.append(k) } } }
+        while let p = stack.popLast() {
+            let x = p % w, y = p / w
+            for (dx, dy) in [(1, 0), (-1, 0), (0, 1), (0, -1)] {
+                let nx = x + dx, ny = y + dy
+                guard nx >= 0, ny >= 0, nx < w, ny < h else { continue }
+                let q = ny * w + nx
+                if !m[q] && !outside[q] { outside[q] = true; stack.append(q) }
+            }
+        }
+        return outside.map { !$0 }
     }
 
     // MARK: Gesamtanalyse
@@ -296,7 +471,11 @@ public enum MoonAnalyzer {
         try check()
         step("Krater werden erkannt", 0.45)
         let maxCount = settings.craterMode == .largest ? 12 : 120
-        let craters = detectCraters(img, det: detection, limb: limb, maxCount: maxCount)
+        let scan = scanCraters(img, maxCount: maxCount)
+        info(String(format: "Sonnenrichtung im Bild: %.0f° (%@)", scan.sunAngleDeg, scan.sunFromLimb ? "aus beleuchtetem Mondrand" : "aus Helligkeitsverlauf"))
+        var craters = scan.craters
+        // außerhalb des vermessenen Mondrands liegende Kandidaten verwerfen
+        if let l = limb { craters = craters.filter { hypot($0.x - l.cx, $0.y - l.cy) < l.r - $0.minorRadius * 0.5 } }
         info("\(craters.count) Krater erkannt (\(settings.craterMode.germanName)).")
         try check()
         step("Kraterdetails werden berechnet", 0.8)
@@ -317,7 +496,11 @@ public enum MoonAnalyzer {
                 facts.append(InfoFact("Winkelabstand zur Scheibenmitte", String(format: "ca. %.0f°", ang)))
                 if ang > 60 { facts.append(InfoFact("Perspektive", "randnah – stark verkürzt (oval)")) }
             }
-            facts.append(InfoFact("Beleuchtung", c.shadowFraction > 0.35 ? "Kraterboden überwiegend im Schatten (flacher Sonnenstand)" : c.shadowFraction > 0.1 ? "teilweise beschattet" : "Kraterboden beleuchtet"))
+            if c.minorRadius > 0 && c.r > 0 {
+                let ratio = min(1, c.minorRadius / c.r)
+                facts.append(InfoFact("Form im Bild", String(format: "Ellipse, Achsenverhältnis %.2f", ratio).replacingOccurrences(of: ".", with: ",")))
+                if ratio < 0.9 { facts.append(InfoFact("Perspektive", String(format: "schräg gesehen (ca. %.0f° Blickwinkel) – Durchmesser entlang der langen Achse gemessen", rad2deg(acos(ratio))))) }
+            }
             let cls = craterClass(diaKm)
             facts.insert(InfoFact("Kratertyp", cls.name), at: 1)
             let inf = ObjectInfo(title: "Krater \(n)", subtitle: cls.name, facts: facts,
