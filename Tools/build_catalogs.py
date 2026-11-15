@@ -39,15 +39,40 @@ UA = "SkyReader-catalog-builder/1.0"
 
 OPENNGC = "https://raw.githubusercontent.com/mattiaverga/OpenNGC/master/database_files/{}"
 HYG = "https://raw.githubusercontent.com/astronexus/HYG-Database/main/hyg/CURRENT/hygdata_v41.csv"
-TYCHO = "https://cdsarc.cds.unistra.fr/ftp/I/259/tyc2.dat.{:02d}.gz"
-VIZIER = ("https://vizier.cds.unistra.fr/viz-bin/asu-tsv?-source={}&-out.all"
-          "&-out.add=_RAJ2000,_DEJ2000&-oc.form=d&-out.max=unlimited")
+TYCHO_MIRRORS = [
+    "https://cdsarc.cds.unistra.fr/ftp/I/259/tyc2.dat.{:02d}.gz",
+    "https://cdsarc.u-strasbg.fr/ftp/I/259/tyc2.dat.{:02d}.gz",
+    "http://cdsarc.u-strasbg.fr/ftp/I/259/tyc2.dat.{:02d}.gz",
+    "https://vizier.cfa.harvard.edu/ftp/cats/I/259/tyc2.dat.{:02d}.gz",
+    "https://vizier.cfa.harvard.edu/viz-bin/ftp-index?/ftp/cats/I/259/tyc2.dat.{:02d}.gz",
+]
+VIZIER_HOSTS = ["https://vizier.cds.unistra.fr", "https://vizier.u-strasbg.fr", "https://vizier.cfa.harvard.edu"]
+VIZIER_PATTERNS = [
+    "{host}/viz-bin/asu-tsv?-source={table}&-out.max=unlimited&-out.all=1&-out.add=_RAJ2000,_DEJ2000&-oc.form=d",
+    "{host}/viz-bin/asu-tsv?-source={table}&-out.max=unlimited&-out=**&-out.add=_RAJ2000&-out.add=_DEJ2000&-oc.form=dec",
+]
+TAP_HOSTS = ["https://tapvizier.cds.unistra.fr/TAPVizieR/tap/sync", "https://tapvizier.u-strasbg.fr/TAPVizieR/tap/sync"]
 COMETS = "https://www.minorplanetcenter.net/iau/MPCORB/CometEls.txt"
 CRATERS_SHP = "https://planetarynames.wr.usgs.gov/shapefiles/MOON_nomenclature_center_pts.zip"
 
 
 def log(*a):
     print("[catalogs]", *a, flush=True)
+
+
+def fetch_any(urls, cache, name, source_dir=None, timeout=60, retries=2):
+    for u in urls:
+        d = fetch(u, cache, name, source_dir, timeout=timeout, retries=retries)
+        if d:
+            log(f"  OK: {u} ({len(d)} Bytes)")
+            return d
+    return None
+
+
+def tap_query(adql, cache, name, source_dir=None):
+    import urllib.parse
+    q = urllib.parse.urlencode({"REQUEST": "doQuery", "LANG": "ADQL", "FORMAT": "tsv", "MAXREC": "4000000", "QUERY": adql})
+    return fetch_any([f"{h}?{q}" for h in TAP_HOSTS], cache, name, source_dir, timeout=600, retries=1)
 
 
 def fetch(url, cache, name, source_dir=None, timeout=120, retries=3):
@@ -129,12 +154,17 @@ def load_hyg(data):
 
 def load_tycho(cache, source_dir, maxmag):
     stars = []
+    ok = True
     for i in range(20):
-        raw = fetch(TYCHO.format(i), cache, f"tyc2.dat.{i:02d}.gz", source_dir, timeout=300)
+        raw = fetch_any([m.format(i) for m in TYCHO_MIRRORS], cache, f"tyc2.dat.{i:02d}.gz", source_dir, timeout=60, retries=1)
         if raw is None:
-            log("Tycho-2 unvollstaendig – wird uebersprungen")
-            return []
-        text = gzip.decompress(raw).decode("ascii", "replace")
+            ok = False
+            break
+        try:
+            text = gzip.decompress(raw).decode("ascii", "replace")
+        except OSError:
+            ok = False
+            break
         for line in text.splitlines():
             f = line.split("|")
             if len(f) < 26:
@@ -156,6 +186,27 @@ def load_tycho(cache, source_dir, maxmag):
             if mag <= maxmag:
                 stars.append((ra, dec, mag))
         log(f"Tycho-2 Teil {i:02d}: gesamt {len(stars)}")
+    if ok:
+        return stars
+    log("Tycho-2 per FTP nicht erreichbar – versuche TAP-Abfrage")
+    raw = tap_query(f'SELECT RAmdeg, DEmdeg, BTmag, VTmag FROM "I/259/tyc2" WHERE VTmag < {maxmag + 0.3}', cache, "tyc2_tap.tsv", source_dir)
+    if raw is None:
+        log("Tycho-2 nicht verfuegbar – nur HYG")
+        return []
+    stars = []
+    lines = raw.decode("utf-8", "replace").splitlines()
+    log(f"  TAP-Kopf: {lines[:2]}")
+    for line in lines[1:]:
+        f = line.split("\t")
+        if len(f) < 4:
+            continue
+        ra, dec, bt, vt = fnum(f[0]), fnum(f[1]), fnum(f[2]), fnum(f[3])
+        if ra is None or dec is None or vt is None:
+            continue
+        mag = vt - 0.090 * (bt - vt) if bt is not None else vt
+        if mag <= maxmag:
+            stars.append((ra, dec, mag))
+    log(f"Tycho-2 (TAP): {len(stars)} Sterne")
     return stars
 
 
@@ -297,22 +348,70 @@ def first(row, *keys):
     return None
 
 
-def load_vizier_catalog(cache, source_dir, source, fname, builder):
-    raw = fetch(VIZIER.format(source), cache, fname, source_dir, timeout=300)
-    if raw is None:
+def parse_tap_tsv(data):
+    lines = data.decode("utf-8", "replace").splitlines()
+    if not lines:
         return []
-    rows = parse_vizier_tsv(raw)
+    cols = [c.strip().strip('"') for c in lines[0].split("\t")]
+    log(f"  Spalten (TAP): {cols}")
+    rows = []
+    for l in lines[1:]:
+        vals = [v.strip().strip('"') for v in l.split("\t")]
+        rows.append(dict(zip(cols, vals)))
+    return rows
+
+
+def load_vizier_catalog(cache, source_dir, table, fname, builder):
+    urls = [p.format(host=h, table=table) for p in VIZIER_PATTERNS for h in VIZIER_HOSTS]
+    raw = fetch_any(urls, cache, fname, source_dir, timeout=90, retries=1)
+    rows = parse_vizier_tsv(raw) if raw else []
+    if not rows:
+        raw = tap_query(f'SELECT * FROM "{table}"', cache, fname + ".tap", source_dir)
+        rows = parse_tap_tsv(raw) if raw else []
     out = []
     for r in rows:
-        ra = fnum(first(r, "_RAJ2000", "RAJ2000"))
-        dec = fnum(first(r, "_DEJ2000", "DEJ2000"))
+        ra = fnum(first(r, "_RAJ2000", "RAJ2000", "RA_ICRS", "_RA"))
+        dec = fnum(first(r, "_DEJ2000", "DEJ2000", "DE_ICRS", "_DE"))
+        if ra is None or dec is None:
+            ra, dec = sexa_radec(r)
         if ra is None or dec is None:
             continue
         o = builder(r, ra, dec)
         if o:
             out.append(o)
-    log(f"{source}: {len(out)} Objekte")
+    log(f"{table}: {len(out)} Objekte")
     return out
+
+
+def sexa_radec(r):
+    """RA/Dec aus sexagesimalen Spalten (RAJ2000 '05 40 59.0') oder B1950 (RA1950/DE1950) – letzteres praezediert."""
+    for rk, dk, b1950 in (("RAJ2000", "DEJ2000", False), ("RA2000", "DE2000", False), ("RAB1950", "DEB1950", True), ("RA1950", "DE1950", True)):
+        if rk in r and dk in r and r[rk] and r[dk]:
+            try:
+                p = r[rk].replace(":", " ").split()
+                q = r[dk].replace(":", " ").split()
+                ra = (float(p[0]) + (float(p[1]) if len(p) > 1 else 0) / 60 + (float(p[2]) if len(p) > 2 else 0) / 3600) * 15
+                sign = -1 if q[0].startswith("-") else 1
+                dec = sign * (abs(float(q[0])) + (float(q[1]) if len(q) > 1 else 0) / 60 + (float(q[2]) if len(q) > 2 else 0) / 3600)
+                if b1950:
+                    ra, dec = precess_b1950(ra, dec)
+                return ra, dec
+            except (ValueError, IndexError):
+                return None, None
+    return None, None
+
+
+def precess_b1950(ra, dec):
+    """B1950 -> J2000 (Standardmatrix, ohne E-Terme; Genauigkeit ~1" ausreichend)."""
+    a, d = math.radians(ra), math.radians(dec)
+    x, y, z = math.cos(d) * math.cos(a), math.cos(d) * math.sin(a), math.sin(d)
+    m = [[0.9999256782, -0.0111820611, -0.0048579477],
+         [0.0111820610, 0.9999374784, -0.0000271765],
+         [0.0048579479, -0.0000271474, 0.9999881997]]
+    X = m[0][0] * x + m[0][1] * y + m[0][2] * z
+    Y = m[1][0] * x + m[1][1] * y + m[1][2] * z
+    Z = m[2][0] * x + m[2][1] * y + m[2][2] * z
+    return math.degrees(math.atan2(Y, X)) % 360, math.degrees(math.asin(Z))
 
 
 def build_ldn(r, ra, dec):
@@ -493,12 +592,12 @@ def main():
     objs = load_openngc(fetch(OPENNGC.format("NGC.csv"), cache, "NGC.csv", sd),
                         fetch(OPENNGC.format("addendum.csv"), cache, "addendum.csv", sd))
     if not a.no_remote:
-        objs += load_vizier_catalog(cache, sd, "VII/7A", "ldn.tsv", build_ldn)
-        objs += load_vizier_catalog(cache, sd, "VII/220A", "barnard.tsv", build_barnard)
-        objs += load_vizier_catalog(cache, sd, "VII/20", "sh2.tsv", build_sh2)
-        objs += load_vizier_catalog(cache, sd, "VII/9", "lbn.tsv", build_lbn)
-        objs += load_vizier_catalog(cache, sd, "VII/21", "vdb.tsv", build_vdb)
-        objs += load_vizier_catalog(cache, sd, "VII/231", "ced.tsv", build_ced)
+        objs += load_vizier_catalog(cache, sd, "VII/7A/ldn", "ldn.tsv", build_ldn)
+        objs += load_vizier_catalog(cache, sd, "VII/220A/barnard", "barnard.tsv", build_barnard)
+        objs += load_vizier_catalog(cache, sd, "VII/20/catalog", "sh2.tsv", build_sh2)
+        objs += load_vizier_catalog(cache, sd, "VII/9/catalog", "lbn.tsv", build_lbn)
+        objs += load_vizier_catalog(cache, sd, "VII/21/catalog", "vdb.tsv", build_vdb)
+        objs += load_vizier_catalog(cache, sd, "VII/231/catalog", "ced.tsv", build_ced)
     objs = dedupe(objs)
     srcs = {}
     for o in objs:
