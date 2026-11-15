@@ -9,3 +9,4 @@
 - Analyse-Popup mit Live-Protokoll, Fertig / Abbrechen / Report (TXT)
 - Export als JPEG oder TIFF mit Beschreibungsspalte; Markierungen per Rechtsklick abwählbar
 - Automatische Updates über GitHub-Releases
+- Kataloge: Tycho-2 (1,49 Mio. Sterne bis 11,5 mag), 15.964 Deep-Sky-Objekte, 973 Kometenbahnen, 80 ausführlich beschriebene Objekte
