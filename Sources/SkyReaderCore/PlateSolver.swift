@@ -27,7 +27,9 @@ public final class PlateSolver: @unchecked Sendable {
     func index(for c: Double, isCancelled: () -> Bool) -> QuadIndex {
         lock.lock(); defer { lock.unlock() }
         if let i = indexes[c] { return i }
-        let i = QuadIndex(catalog: catalog, cellDeg: c, isCancelled: isCancelled)
+        // breite Stufen: mehr Sterne je Zelle (robuster); schmale Stufen sparsamer (Speicher)
+        let i = c >= 1.0 ? QuadIndex(catalog: catalog, cellDeg: c, perCell: 6, neighbors: 5, isCancelled: isCancelled)
+                         : QuadIndex(catalog: catalog, cellDeg: c, perCell: 5, neighbors: 4, isCancelled: isCancelled)
         // Speicher begrenzen: nur wenige Stufen gleichzeitig halten
         if indexes.count > 4, let k = indexes.keys.min() { indexes[k] = nil }
         indexes[c] = i
@@ -88,7 +90,7 @@ public final class PlateSolver: @unchecked Sendable {
 
     struct ImageQuad { var hash: QuadHash; var ids: [Int]; var mirrored: Bool }
 
-    func imageQuads(_ stars: [DetectedStar], width: Int, height: Int, cellPx: Double, K: Int = 6, M: Int = 6) -> [ImageQuad] {
+    func imageQuads(_ stars: [DetectedStar], width: Int, height: Int, cellPx: Double, K: Int = 8, M: Int = 6) -> [ImageQuad] {
         let gx = max(1, Int(ceil(Double(width) / cellPx))), gy = max(1, Int(ceil(Double(height) / cellPx)))
         var cells = [[Int]](repeating: [], count: gx * gy)
         for (i, s) in stars.enumerated() {

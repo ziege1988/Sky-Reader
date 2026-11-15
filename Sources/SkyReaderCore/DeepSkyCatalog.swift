@@ -154,7 +154,8 @@ public final class DeepSkyCatalog: @unchecked Sendable {
                     if o.src == "LDN" { keep = (o.opacity ?? 0) >= (density == .many ? 4 : 5) && rel >= 0.03 * f }
                     else { keep = rel >= 0.012 * f }
                 default:
-                    if o.src == "LBN" { keep = (o.bright ?? 6) <= (density == .many ? 4 : 3) && rel >= 0.02 * f }
+                    if o.src == "LBN" { keep = (o.bright ?? 6) <= (density == .many ? 3 : density == .normal ? 2 : 1) && rel >= 0.03 * f }
+                    else if o.src == "Cederblad" { keep = rel >= 0.03 * f }
                     else if o.src == "Sharpless" { keep = rel >= 0.02 * f }
                     else if o.type == .planetaryNebula { keep = (o.mag ?? 99) <= magLimit + 1 || rel >= 0.004 * f }
                     else { keep = rel >= 0.008 * f || (o.mag ?? 99) <= magLimit }

@@ -104,7 +104,8 @@ public enum StarDetector {
                 } }
                 if !isMax { continue }
                 // Flood-Fill der zusammenhängenden Fläche oberhalb halber Schwelle
-                let floorV = max(thr[i] * 0.5, v * 0.08)
+                let floorV = max(thr[i] * 0.5, v * 0.22)
+                let maxR2 = 22 * 22
                 stack.removeAll(keepingCapacity: true)
                 stack.append(i); visited[i] = true
                 var sx = 0.0, sy = 0.0, sf = 0.0, sxx = 0.0, syy = 0.0, sxy = 0.0
@@ -122,6 +123,8 @@ public enum StarDetector {
                     if area > 2500 { tooBig = true; break }
                     for (dx, dy) in [(1, 0), (-1, 0), (0, 1), (0, -1)] {
                         let nx = px + dx, ny = py + dy
+                        // radial begrenzen: Beugungsspikes heller Sterne nicht endlos verfolgen
+                        if (nx - x) * (nx - x) + (ny - y) * (ny - y) > maxR2 { continue }
                         if nx < 1 || ny < 1 || nx >= w - 1 || ny >= h - 1 { touchesBorder = true; continue }
                         let q = ny * w + nx
                         if !visited[q] && resid[q] > floorV { visited[q] = true; stack.append(q) }
@@ -134,7 +137,8 @@ public enum StarDetector {
                 let disc = max(0, tr * tr / 4 - det).squareRoot()
                 let l1 = tr / 2 + disc, l2 = max(tr / 2 - disc, 1e-6)
                 let elong = (l1 / l2).squareRoot()
-                if elong > 2.2 { continue }
+                let saturatedCore = peak > 0.9
+                if elong > (saturatedCore ? 3.0 : 2.2) { continue }
                 // Ausgedehnte, flache Flecken (Galaxien/Nebelknoten) verwerfen: Fläche vs. Spitzenhelligkeit
                 let saturated = peak > 0.97
                 if !saturated && area > 40 && Double(v) < 6 * Double(thr[i]) && area > 120 { continue }

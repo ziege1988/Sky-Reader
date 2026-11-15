@@ -195,16 +195,27 @@
  },
  {
   "ids": [
-   "NGC 869",
+   "NGC 869"
+  ],
+  "name": "h Persei (Doppelsternhaufen)",
+  "distance": "ca. 7.500 Lichtjahre",
+  "size": "ca. 70 Lichtjahre",
+  "age": "ca. 14 Mio. Jahre",
+  "scientific": "Der westliche der beiden Haufen des Doppelsternhaufens im Perseus: ein sehr junger, reicher offener Sternhaufen mit Hunderten heller blauer Riesensterne. Zusammen mit χ Persei Teil der Assoziation Perseus OB1.",
+  "latest": "Gaia-Messungen bestätigen, dass beide Haufen dieselbe Entfernung haben und von einem ausgedehnten Halo gemeinsam entstandener Sterne umgeben sind.",
+  "layman": "Die eine Hälfte des berühmten Doppelsternhaufens – schon im Fernglas ein glitzerndes Juwel."
+ },
+ {
+  "ids": [
    "NGC 884"
   ],
-  "name": "Doppelsternhaufen h & χ Persei",
+  "name": "χ Persei (Doppelsternhaufen)",
   "distance": "ca. 7.500 Lichtjahre",
-  "size": "je ca. 70 Lichtjahre",
+  "size": "ca. 70 Lichtjahre",
   "age": "ca. 14 Mio. Jahre",
-  "scientific": "Zwei benachbarte, sehr junge offene Sternhaufen mit Hunderten heller blauer Riesen und einigen roten Überriesen. Beide gehören zur Assoziation Perseus OB1 und sind nahezu gleich alt.",
-  "latest": "Gaia-Messungen bestätigen, dass beide Haufen dieselbe Entfernung haben und von einem ausgedehnten Halo gemeinsam entstandener Sterne umgeben sind.",
-  "layman": "Zwei glitzernde Sternhaufen direkt nebeneinander – schon mit dem Fernglas ein Juwel. Die wenigen orangen Sterne darin sind gealterte Riesensterne."
+  "scientific": "Der östliche Haufen des Doppelsternhaufens. Er enthält mehrere rote Überriesen – massereiche Sterne, die ihren Wasserstoffvorrat bereits verbraucht haben.",
+  "latest": "Spektroskopische Studien nutzen h und χ Persei als Labor für die Entwicklung massereicher Sterne bei gleichem Alter und gleicher Zusammensetzung.",
+  "layman": "Die zweite Hälfte des Doppelsternhaufens. Die orangefarbenen Sterne darin sind riesige, gealterte Sonnen."
  },
  {
   "ids": [

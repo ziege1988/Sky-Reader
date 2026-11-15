@@ -76,10 +76,14 @@ o(["NGC 1499"], "Kaliforniennebel", "ca. 1.000 Lichtjahre", "ca. 100 Lichtjahre 
   "Eine ausgedehnte H-II-Region, ionisiert vom extrem heißen Stern ξ Persei (Menkib, Spektraltyp O7.5). Ihre Form erinnert an den US-Bundesstaat Kalifornien.",
   "ξ Persei ist ein „Runaway“-Stern, der mit hoher Geschwindigkeit aus seiner Geburtsgruppe flieht.",
   "Ein riesiger roter Nebel, der wie die Landkarte Kaliforniens aussieht. Er ist so lichtschwach, dass man ihn fast nur auf Fotos sieht.")
-o(["NGC 869", "NGC 884"], "Doppelsternhaufen h & χ Persei", "ca. 7.500 Lichtjahre", "je ca. 70 Lichtjahre", "ca. 14 Mio. Jahre",
-  "Zwei benachbarte, sehr junge offene Sternhaufen mit Hunderten heller blauer Riesen und einigen roten Überriesen. Beide gehören zur Assoziation Perseus OB1 und sind nahezu gleich alt.",
+o(["NGC 869"], "h Persei (Doppelsternhaufen)", "ca. 7.500 Lichtjahre", "ca. 70 Lichtjahre", "ca. 14 Mio. Jahre",
+  "Der westliche der beiden Haufen des Doppelsternhaufens im Perseus: ein sehr junger, reicher offener Sternhaufen mit Hunderten heller blauer Riesensterne. Zusammen mit χ Persei Teil der Assoziation Perseus OB1.",
   "Gaia-Messungen bestätigen, dass beide Haufen dieselbe Entfernung haben und von einem ausgedehnten Halo gemeinsam entstandener Sterne umgeben sind.",
-  "Zwei glitzernde Sternhaufen direkt nebeneinander – schon mit dem Fernglas ein Juwel. Die wenigen orangen Sterne darin sind gealterte Riesensterne.")
+  "Die eine Hälfte des berühmten Doppelsternhaufens – schon im Fernglas ein glitzerndes Juwel.")
+o(["NGC 884"], "χ Persei (Doppelsternhaufen)", "ca. 7.500 Lichtjahre", "ca. 70 Lichtjahre", "ca. 14 Mio. Jahre",
+  "Der östliche Haufen des Doppelsternhaufens. Er enthält mehrere rote Überriesen – massereiche Sterne, die ihren Wasserstoffvorrat bereits verbraucht haben.",
+  "Spektroskopische Studien nutzen h und χ Persei als Labor für die Entwicklung massereicher Sterne bei gleichem Alter und gleicher Zusammensetzung.",
+  "Die zweite Hälfte des Doppelsternhaufens. Die orangefarbenen Sterne darin sind riesige, gealterte Sonnen.")
 o(["IC 1805"], "Herznebel", "ca. 7.500 Lichtjahre", "ca. 200 Lichtjahre", None,
   "Eine große H-II-Region im Perseusarm, ionisiert vom Sternhaufen Melotte 15 mit mehreren O-Sternen von bis zu 50 Sonnenmassen.",
   "", "Ein rot leuchtender Nebel in Herzform, in dessen Zentrum einige der massereichsten Sterne unserer Galaxie stehen.")

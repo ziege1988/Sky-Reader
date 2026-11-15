@@ -516,6 +516,20 @@ def dedupe(objs):
     return out
 
 
+# Korrekturen offensichtlicher Katalogwerte (sichtbare Ausdehnung statt Gesamtausdehnung)
+OVERRIDES = {
+    # Barnards Loop: Sharpless gibt 1200' an; Kreisfit an den sichtbaren Bogen: Radius 7,0° um RA 82,1°, Dec -3,2°
+    "Sh2-276": {"ra": 82.1, "dec": -3.2, "maj": 845.0, "common": "Barnard's Loop"},
+}
+
+
+def apply_overrides(objs):
+    for o in objs:
+        if o["id"] in OVERRIDES:
+            o.update(OVERRIDES[o["id"]])
+    return objs
+
+
 def compact(o):
     return {k: v for k, v in o.items() if v not in (None, [], "")}
 
@@ -613,7 +627,7 @@ def main():
         objs += load_vizier_catalog(cache, sd, "VII/9/catalog", "lbn.tsv", build_lbn)
         objs += load_vizier_catalog(cache, sd, "VII/21/catalog", "vdb.tsv", build_vdb)
         objs += load_vizier_catalog(cache, sd, "VII/231/catalog", "ced.tsv", build_ced)
-    objs = dedupe(objs)
+    objs = apply_overrides(dedupe(objs))
     srcs = {}
     for o in objs:
         srcs[o["src"]] = srcs.get(o["src"], 0) + 1

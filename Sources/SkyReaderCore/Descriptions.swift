@@ -219,7 +219,7 @@ public enum CommonNames {
         "Monkey Head Nebula": "Affenkopfnebel", "Jellyfish Nebula": "Quallennebel", "Wizard Nebula": "Zauberernebel",
         "Fish Head Nebula": "Fischkopfnebel", "Cocoon Nebula": "Kokonnebel", "Tadpoles Nebula": "Kaulquappennebel",
         "Little Ghost Nebula": "Kleiner Geisternebel", "Blue Snowball": "Blauer Schneeball",
-        "Maia Nebula": "Maia-Nebel", "Electra Nebula": "Elektra-Nebel", "Upper Sword": "Oberes Schwert (Orion)",
+        "Maia Nebula": "Maia-Nebel", "Barnard's Loop": "Barnards Loop", "Electra Nebula": "Elektra-Nebel", "Upper Sword": "Oberes Schwert (Orion)",
         "Running Man Nebula": "Running-Man-Nebel", "the Running Man Nebula": "Running-Man-Nebel",
     ]
 }

@@ -48,12 +48,27 @@ enum OverlayLayout {
                 let rect = CGRect(x: c.x - size.width / 2, y: c.y - size.height / 2, width: size.width, height: size.height)
                 best = (rect, c, 0)
             } else {
-                let angles: [CGFloat] = [-45, -135, 45, 135, 0, 180, -90, 90, -20, -160, 20, 160]
+                var angles: [CGFloat] = [-45, -135, 45, 135, 0, 180, -90, 90, -20, -160, 20, 160]
+                if r > min(bounds.width, bounds.height) * 0.3 {
+                    // Sehr große Kreise: Ankerpunkte entlang des ganzen Umfangs, die im Bild liegen (nahe der Bildmitte zuerst)
+                    let mid = CGPoint(x: bounds.midX, y: bounds.midY)
+                    angles = stride(from: 0, to: 360, by: 7.5).map { CGFloat($0) }.filter { a in
+                        let p = CGPoint(x: c.x + cos(a * .pi / 180) * r, y: c.y + sin(a * .pi / 180) * r)
+                        return bounds.insetBy(dx: size.width, dy: size.height).contains(p)
+                    }.sorted { a, b in
+                        let pa = CGPoint(x: c.x + cos(a * .pi / 180) * r, y: c.y + sin(a * .pi / 180) * r)
+                        let pb = CGPoint(x: c.x + cos(b * .pi / 180) * r, y: c.y + sin(b * .pi / 180) * r)
+                        return hypot(pa.x - mid.x, pa.y - mid.y) > hypot(pb.x - mid.x, pb.y - mid.y)
+                    }
+                    if angles.isEmpty { angles = [-45, -135, 45, 135] }
+                }
                 for (k, a) in angles.enumerated() {
                     let rad = a * .pi / 180
                     let anchor = CGPoint(x: c.x + cos(rad) * r, y: c.y + sin(rad) * r)
                     let gap: CGFloat = 3 + CGFloat(k / 8) * 10
                     var origin = CGPoint(x: anchor.x + cos(rad) * gap, y: anchor.y + sin(rad) * gap)
+                    // Große Kreise: Beschriftung innen an den Bogen legen
+                    if r > min(bounds.width, bounds.height) * 0.3 { origin = CGPoint(x: anchor.x - cos(rad) * (gap + size.width * 0.6), y: anchor.y - sin(rad) * (gap + size.height)) }
                     // Rechteck so ausrichten, dass es vom Kreis weg zeigt
                     if cos(rad) < -0.3 { origin.x -= size.width } else if abs(cos(rad)) <= 0.3 { origin.x -= size.width / 2 }
                     if sin(rad) < -0.3 { origin.y -= size.height } else if abs(sin(rad)) <= 0.3 { origin.y -= size.height / 2 }
