@@ -15,7 +15,7 @@ struct AnalysisSheet: View {
                     .frame(width: 58, height: 58)
                 VStack(alignment: .leading, spacing: 4) {
                     Text(title).font(.system(size: 18, weight: .semibold)).foregroundStyle(Theme.textPrimary)
-                    Text(state.currentStep).font(.system(size: 12)).foregroundStyle(Theme.textSecondary).lineLimit(1)
+                    Text(subtitle).font(.system(size: 12)).foregroundStyle(Theme.textSecondary).lineLimit(1)
                 }
                 Spacer()
                 if let l = state.loaded {
@@ -79,6 +79,17 @@ struct AnalysisSheet: View {
         case .failed: return "Analyse fehlgeschlagen"
         case .cancelled: return "Abgebrochen"
         default: return "Bild wird analysiert …"
+        }
+    }
+
+    var subtitle: String {
+        if state.isBusy { return state.currentStep }
+        let t = String(format: "%.1f s", state.log.last.map { $0.time.timeIntervalSince(state.log.first?.time ?? $0.time) } ?? 0)
+            .replacingOccurrences(of: ".", with: ",")
+        switch state.phase {
+        case .finished: return "Rechenzeit \(t)"
+        case .failed: return "Details im Protokoll – „Report“ speichert es als Textdatei"
+        default: return state.currentStep
         }
     }
 

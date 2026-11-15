@@ -130,7 +130,7 @@ public final class SkyAnalyzer: @unchecked Sendable {
         // Kometensuche (auch ohne Lösung möglich)
         step("Suche nach Kometen", 0.7)
         let cometCandidate = CometAnalyzer.detect(img, stars: stars)
-        if let c = cometCandidate { info(String(format: "Diffuses Objekt mit Schweif bei (%.0f, %.0f) gefunden.", c.x * Double(factor), c.y * Double(factor))) }
+        if let c = cometCandidate, c.score > 0.5 { info(String(format: "Kometenkandidat (diffuses Objekt mit Schweif) bei (%.0f, %.0f).", c.x * Double(factor), c.y * Double(factor))) }
 
         guard let sol = solved else {
             if let c = cometCandidate, c.score > 0.5 {

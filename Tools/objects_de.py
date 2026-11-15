@@ -87,6 +87,22 @@ o(["IC 1848"], "Seelennebel", "ca. 7.500 Lichtjahre", "ca. 100 Lichtjahre", None
   "Eine H-II-Region neben dem Herznebel mit den jungen Haufen IC 1848 und mehreren Sternentstehungsgebieten.",
   "", "Der Nachbar des Herznebels – zusammen nennt man sie auch „Herz und Seele“.")
 
+o(["NGC 1432"], "Maia-Nebel", "ca. 440 Lichtjahre", None, None,
+  "Ein Reflexionsnebel um den Plejadenstern Maia (20 Tau), Teil des Staubschleiers, den die Plejaden gerade durchqueren.",
+  "", "Ein bläulicher Schimmer um den Stern Maia – angestrahlter Staub in den Plejaden.")
+o(["IC 348"], "IC 348", "ca. 1.000 Lichtjahre", "ca. 10 Lichtjahre", "ca. 2–3 Mio. Jahre",
+  "Ein sehr junger Sternhaufen mit Reflexionsnebel in der Perseus-Molekülwolke, nahe dem Stern ο Persei. Er enthält mehrere hundert junge Sterne und Braune Zwerge.",
+  "Das James-Webb-Teleskop fand 2023 in IC 348 einige der leichtesten bekannten frei fliegenden Braunen Zwerge (wenige Jupitermassen) sowie ein unerklärtes Kohlenwasserstoff-Signal in ihrer Atmosphäre.",
+  "Eine Kinderstube von Sternen und „verhinderten Sternen“ – Braunen Zwergen, die zu klein für ein Sternfeuer sind.")
+o(["NGC 1333"], "NGC 1333", "ca. 1.000 Lichtjahre", None, "ca. 1 Mio. Jahre",
+  "Ein Reflexionsnebel mit eingebettetem, extrem jungem Sternhaufen in der Perseus-Molekülwolke – eines der am besten untersuchten Gebiete aktiver Sternentstehung mit zahlreichen Jets und Herbig-Haro-Objekten.",
+  "JWST-Aufnahmen (2024) zeigten zahlreiche frei fliegende Objekte planetarer Masse in NGC 1333.",
+  "In dieser staubigen Wolke wachsen gerade Hunderte neuer Sterne heran.")
+o(["LDN 1495", "B 211", "B 213"], "Taurus-Dunkelwolke (B 211/213)", "ca. 450 Lichtjahre", None, None,
+  "Lange, fadenförmige Dunkelwolke im Stier, Teil der Taurus-Molekülwolke – eines der nächstgelegenen Sternentstehungsgebiete mit überwiegend massearmen Sternen.",
+  "Herschel-Aufnahmen zeigten, dass sich Sterne bevorzugt entlang solcher Filamente bilden.",
+  "Ein dunkler Faden aus Staub, in dem neue, sonnenähnliche Sterne entstehen.")
+
 # ---------------------------------------------------------------- Nordpol / Cepheus / Cygnus
 o(["NGC 188"], "NGC 188", "ca. 6.000 Lichtjahre", "ca. 30 Lichtjahre", "ca. 6–7 Mrd. Jahre",
   "Einer der ältesten bekannten offenen Sternhaufen der Milchstraße, nur gut 4° vom Himmelsnordpol entfernt. Seine hohe Lage über der galaktischen Scheibe hat ihn vor der Zerstörung durch Gaswolken bewahrt.",

@@ -214,8 +214,9 @@ struct OverlayCanvas: View {
             let fs = CGFloat(12 * state.labelScale)
             let items = OverlayLayout.layout(objects: result.objects,
                                              transform: { CGPoint(x: imageRect.minX + $0.x * k, y: imageRect.minY + $0.y * k) },
-                                             scale: k, fontSize: fs, bounds: bounds.insetBy(dx: 4, dy: 4),
+                                             scale: k, fontSize: fs, bounds: imageRect.intersection(bounds).insetBy(dx: 4, dy: 4),
                                              selected: state.selectedObjectID)
+            ctx.clip(to: Path(imageRect.intersection(bounds)))
             ctx.withCGContext { cg in
                 OverlayLayout.draw(items, in: cg, lineWidth: 1.5, fontSize: fs, showLabels: state.showLabels, selected: state.selectedObjectID)
             }

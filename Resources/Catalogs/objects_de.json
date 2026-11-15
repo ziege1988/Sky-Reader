@@ -230,6 +230,51 @@
  },
  {
   "ids": [
+   "NGC 1432"
+  ],
+  "name": "Maia-Nebel",
+  "distance": "ca. 440 Lichtjahre",
+  "scientific": "Ein Reflexionsnebel um den Plejadenstern Maia (20 Tau), Teil des Staubschleiers, den die Plejaden gerade durchqueren.",
+  "latest": "",
+  "layman": "Ein bläulicher Schimmer um den Stern Maia – angestrahlter Staub in den Plejaden."
+ },
+ {
+  "ids": [
+   "IC 348"
+  ],
+  "name": "IC 348",
+  "distance": "ca. 1.000 Lichtjahre",
+  "size": "ca. 10 Lichtjahre",
+  "age": "ca. 2–3 Mio. Jahre",
+  "scientific": "Ein sehr junger Sternhaufen mit Reflexionsnebel in der Perseus-Molekülwolke, nahe dem Stern ο Persei. Er enthält mehrere hundert junge Sterne und Braune Zwerge.",
+  "latest": "Das James-Webb-Teleskop fand 2023 in IC 348 einige der leichtesten bekannten frei fliegenden Braunen Zwerge (wenige Jupitermassen) sowie ein unerklärtes Kohlenwasserstoff-Signal in ihrer Atmosphäre.",
+  "layman": "Eine Kinderstube von Sternen und „verhinderten Sternen“ – Braunen Zwergen, die zu klein für ein Sternfeuer sind."
+ },
+ {
+  "ids": [
+   "NGC 1333"
+  ],
+  "name": "NGC 1333",
+  "distance": "ca. 1.000 Lichtjahre",
+  "age": "ca. 1 Mio. Jahre",
+  "scientific": "Ein Reflexionsnebel mit eingebettetem, extrem jungem Sternhaufen in der Perseus-Molekülwolke – eines der am besten untersuchten Gebiete aktiver Sternentstehung mit zahlreichen Jets und Herbig-Haro-Objekten.",
+  "latest": "JWST-Aufnahmen (2024) zeigten zahlreiche frei fliegende Objekte planetarer Masse in NGC 1333.",
+  "layman": "In dieser staubigen Wolke wachsen gerade Hunderte neuer Sterne heran."
+ },
+ {
+  "ids": [
+   "LDN 1495",
+   "B 211",
+   "B 213"
+  ],
+  "name": "Taurus-Dunkelwolke (B 211/213)",
+  "distance": "ca. 450 Lichtjahre",
+  "scientific": "Lange, fadenförmige Dunkelwolke im Stier, Teil der Taurus-Molekülwolke – eines der nächstgelegenen Sternentstehungsgebiete mit überwiegend massearmen Sternen.",
+  "latest": "Herschel-Aufnahmen zeigten, dass sich Sterne bevorzugt entlang solcher Filamente bilden.",
+  "layman": "Ein dunkler Faden aus Staub, in dem neue, sonnenähnliche Sterne entstehen."
+ },
+ {
+  "ids": [
    "NGC 188"
   ],
   "name": "NGC 188",

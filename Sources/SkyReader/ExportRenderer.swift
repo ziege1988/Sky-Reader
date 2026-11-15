@@ -61,8 +61,11 @@ enum ExportRenderer {
             let objs = ghostHidden ? result.objects : visible
             let items = OverlayLayout.layout(objects: objs, transform: { CGPoint(x: $0.x * k, y: $0.y * k) }, scale: k,
                                              fontSize: fs, bounds: L.imageRect.insetBy(dx: 2, dy: 2))
+            ctx.saveGState()
+            ctx.clip(to: L.imageRect)
             OverlayLayout.draw(items, in: ctx, lineWidth: max(1.2, ref / 900), fontSize: fs, showLabels: true,
                                hidden: hidden, ghostHidden: ghostHidden)
+            ctx.restoreGState()
         }
         if options.showDescription {
             let panel = CGRect(x: L.imageRect.maxX, y: 0, width: L.size.width - L.imageRect.maxX, height: L.size.height)

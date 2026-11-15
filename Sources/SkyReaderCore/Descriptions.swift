@@ -64,7 +64,7 @@ public final class Descriptions: @unchecked Sendable {
         var uniq: [String] = []
         for i in ids where !uniq.contains(i) { uniq.append(i) }
         let name = cur?.name ?? germanCommonName(o.common)
-        let title = name.map { "\(o.displayID) – \($0)" } ?? o.displayID
+        let title = name.flatMap { $0 == o.displayID || o.allIDs.contains($0) ? nil : "\(o.displayID) – \($0)" } ?? o.displayID
         var facts: [InfoFact] = []
         facts.append(InfoFact("Objekttyp", o.type.germanName + (o.hubble.map { " (Typ \($0))" } ?? "")))
         if let d = cur?.distance { facts.append(InfoFact("Entfernung", d)) }
@@ -87,7 +87,7 @@ public final class Descriptions: @unchecked Sendable {
         }
         let (sci, lay) = generatedTexts(o)
         return ObjectInfo(title: title, subtitle: o.type.germanName, facts: facts, scientific: sci,
-                          latest: "Für dieses Objekt liegen in Sky Reader keine gesonderten Forschungsnotizen vor. Die Angaben stammen aus dem \(o.src == "OpenNGC" ? "OpenNGC" : o.src)-Katalog.",
+                          latest: "",
                           layman: lay)
     }
 
@@ -101,7 +101,8 @@ public final class Descriptions: @unchecked Sendable {
     func germanCommonName(_ s: String?) -> String? {
         guard let s = s, let first = s.split(separator: ",").first else { return nil }
         let n = String(first).trimmingCharacters(in: .whitespaces)
-        return CommonNames.german[n] ?? n
+        if let g = CommonNames.german[n] { return g }
+        return CommonNames.germanize(n)
     }
 
     func generatedTexts(_ o: DSO) -> (String, String) {
@@ -120,7 +121,10 @@ public final class Descriptions: @unchecked Sendable {
         case .globularCluster:
             return ("Ein Kugelsternhaufen: eine dichte, kugelförmige Ansammlung von Hunderttausenden sehr alter Sterne im Halo der Milchstraße, oft über 10 Milliarden Jahre alt.\(size)",
                     "Ein Kugelsternhaufen ist wie eine riesige Sternenkugel – Hunderttausende uralte Sonnen, dicht gedrängt, fast so alt wie das Universum selbst.")
-        case .clusterNebula, .emissionNebula, .nebula:
+        case .nebula:
+            return ("Ein diffuser Nebel aus interstellarem Gas und Staub. Je nach Umgebung leuchtet er selbst (rötliches H-alpha-Licht, angeregt von heißen Sternen) oder reflektiert das Licht naher Sterne (bläulich).\(size)",
+                    "Eine zarte Wolke aus Gas und Staub zwischen den Sternen – sie wird vom Licht benachbarter Sterne sichtbar gemacht.")
+        case .clusterNebula, .emissionNebula:
             return ("Eine Wolke aus Wasserstoffgas, die von der ultravioletten Strahlung junger, heißer Sterne ionisiert wird und dadurch – vor allem im roten H-alpha-Licht – selbst leuchtet. Solche Regionen sind Geburtsstätten neuer Sterne.\(size)",
                     "Hier leuchtet eine riesige Gaswolke rötlich, weil heiße junge Sterne sie wie eine Neonröhre zum Glühen bringen. In solchen Wolken entstehen neue Sterne.")
         case .reflectionNebula:
@@ -170,6 +174,26 @@ public func formatDegrees(_ v: Double, digits: Int = 2) -> String {
 }
 
 public enum CommonNames {
+    /// Einfache Eindeutschung englischer Eigennamen („Maia Nebula“ → „Maia-Nebel“)
+    public static func germanize(_ n: String) -> String {
+        var s = n
+        if s.lowercased().hasPrefix("the ") { s = String(s.dropFirst(4)) }
+        let greek = ["alf": "Alpha", "bet": "Beta", "gam": "Gamma", "del": "Delta", "eps": "Epsilon", "zet": "Zeta", "eta": "Eta",
+                     "the": "Theta", "iot": "Iota", "kap": "Kappa", "lam": "Lambda", "mu.": "My", "nu.": "Ny", "ksi": "Xi",
+                     "omi": "Omikron", "pi.": "Pi", "rho": "Rho", "sig": "Sigma", "tau": "Tau", "ups": "Ypsilon", "phi": "Phi",
+                     "chi": "Chi", "psi": "Psi", "ome": "Omega"]
+        var parts = s.split(separator: " ").map(String.init)
+        if parts.count >= 2, let g = greek[parts[0].lowercased()] ?? greek[parts[0].lowercased() + "."] {
+            parts[0] = g
+            if let c = Constellations.genitive[parts[1]] { parts[1] = c }
+        }
+        s = parts.joined(separator: " ")
+        for (en, de) in [(" Nebula", "-Nebel"), (" Cluster", "-Haufen"), (" Galaxy", "-Galaxie"), (" Cloud", "-Wolke"), (" Loop", "-Bogen")] where s.hasSuffix(en) {
+            s = String(s.dropLast(en.count)) + de
+        }
+        return s
+    }
+
     public static let german: [String: String] = [
         "Great Orion Nebula": "Orionnebel", "Orion Nebula": "Orionnebel", "Pleiades": "Plejaden",
         "Andromeda Galaxy": "Andromedagalaxie", "Triangulum Galaxy": "Dreiecksgalaxie", "Crab Nebula": "Krebsnebel",
@@ -195,10 +219,21 @@ public enum CommonNames {
         "Monkey Head Nebula": "Affenkopfnebel", "Jellyfish Nebula": "Quallennebel", "Wizard Nebula": "Zauberernebel",
         "Fish Head Nebula": "Fischkopfnebel", "Cocoon Nebula": "Kokonnebel", "Tadpoles Nebula": "Kaulquappennebel",
         "Little Ghost Nebula": "Kleiner Geisternebel", "Blue Snowball": "Blauer Schneeball",
+        "Maia Nebula": "Maia-Nebel", "Electra Nebula": "Elektra-Nebel", "Upper Sword": "Oberes Schwert (Orion)",
+        "Running Man Nebula": "Running-Man-Nebel", "the Running Man Nebula": "Running-Man-Nebel",
     ]
 }
 
 public enum Constellations {
+    /// Lateinischer Genitiv für Sternbezeichnungen (Omikron Persei …)
+    public static let genitive: [String: String] = [
+        "And": "Andromedae", "Aql": "Aquilae", "Ari": "Arietis", "Aur": "Aurigae", "Boo": "Bootis", "Cas": "Cassiopeiae",
+        "Cep": "Cephei", "Cet": "Ceti", "CMa": "Canis Majoris", "Cyg": "Cygni", "Dra": "Draconis", "Eri": "Eridani",
+        "Gem": "Geminorum", "Her": "Herculis", "Leo": "Leonis", "Lyr": "Lyrae", "Mon": "Monocerotis", "Oph": "Ophiuchi",
+        "Ori": "Orionis", "Peg": "Pegasi", "Per": "Persei", "Sco": "Scorpii", "Sgr": "Sagittarii", "Tau": "Tauri",
+        "UMa": "Ursae Majoris", "UMi": "Ursae Minoris", "Vir": "Virginis", "Vul": "Vulpeculae", "Lup": "Lupi", "Cen": "Centauri",
+    ]
+
     public static let german: [String: String] = [
         "And": "Andromeda", "Ant": "Luftpumpe", "Aps": "Paradiesvogel", "Aqr": "Wassermann", "Aql": "Adler", "Ara": "Altar",
         "Ari": "Widder", "Aur": "Fuhrmann", "Boo": "Bärenhüter", "Cae": "Grabstichel", "Cam": "Giraffe", "Cnc": "Krebs",

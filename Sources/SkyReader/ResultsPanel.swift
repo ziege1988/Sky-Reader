@@ -101,7 +101,7 @@ struct SummaryCard: View {
         PanelCard {
             VStack(alignment: .leading, spacing: 10) {
                 HStack {
-                    Text(info.title).font(.system(size: 17, weight: .semibold)).foregroundStyle(Theme.textPrimary)
+                    Text(info.title).font(.system(size: 17, weight: .semibold)).foregroundStyle(Theme.textPrimary).lineLimit(1).minimumScaleFactor(0.7)
                     Spacer()
                     Text("\(count) \(kind == .moon ? "Krater" : "Objekte")")
                         .font(.system(size: 11, weight: .medium)).foregroundStyle(Theme.accent)
@@ -180,25 +180,39 @@ struct TextSection: View {
 struct BottomBar: View {
     @EnvironmentObject var state: AppState
     var body: some View {
+        ViewThatFits(in: .horizontal) {
+            bar(compact: false)
+            bar(compact: true)
+        }
+        .padding(12)
+        .frame(maxWidth: .infinity)
+        .background(Color.black.opacity(0.6))
+        .overlay(alignment: .top) { Rectangle().fill(Theme.divider).frame(height: 1) }
+    }
+
+    func bar(compact: Bool) -> some View {
         HStack(spacing: 8) {
-            Button { state.openPanel() } label: { Label("Öffnen", systemImage: "folder") }
-                .buttonStyle(SkyButtonStyle()).disabled(state.isBusy)
+            Button { state.openPanel() } label: { label("Öffnen", "folder", compact) }
+                .buttonStyle(SkyButtonStyle()).disabled(state.isBusy).help("Bild öffnen (⌘O)")
             if state.loaded != nil {
-                Button { state.reanalyze() } label: { Label("Neu analysieren", systemImage: "arrow.clockwise") }
+                Button { state.reanalyze() } label: { label("Neu analysieren", "arrow.clockwise", compact) }
                     .buttonStyle(SkyButtonStyle()).disabled(state.isBusy)
                     .help("Mit den aktuellen Einstellungen erneut analysieren")
             }
-            Spacer()
-            Button { state.showExport = true } label: { Label("Exportieren", systemImage: "square.and.arrow.up") }
+            Spacer(minLength: 8)
+            Button { state.showExport = true } label: { label("Exportieren", "square.and.arrow.up", compact && state.loaded != nil) }
                 .buttonStyle(SkyButtonStyle(prominent: true))
                 .disabled(state.result == nil)
-            Button { state.showSettings = true } label: { Image(systemName: "gearshape.fill").font(.system(size: 15)) }
+                .help("Bild mit Markierungen und Beschreibung exportieren")
+            Button { state.showSettings = true } label: { Image(systemName: "gearshape.fill").font(.system(size: 14)) }
                 .buttonStyle(SkyButtonStyle())
                 .help("Einstellungen")
         }
-        .labelStyle(.titleAndIcon)
-        .padding(12)
-        .background(Color.black.opacity(0.6))
-        .overlay(alignment: .top) { Rectangle().fill(Theme.divider).frame(height: 1) }
+        .fixedSize(horizontal: false, vertical: true)
+    }
+
+    @ViewBuilder func label(_ t: String, _ icon: String, _ compact: Bool) -> some View {
+        if compact { Image(systemName: icon) }
+        else { Label(t, systemImage: icon).labelStyle(.titleAndIcon).lineLimit(1).fixedSize() }
     }
 }
