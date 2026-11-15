@@ -6,7 +6,8 @@ struct SettingsView: View {
     @EnvironmentObject var updater: Updater
     @Environment(\.dismiss) private var dismiss
     var showsDone = false
-    @State private var tab = 0
+    @State private var tab = SettingsView.initialTab
+    @MainActor static var initialTab = 0
 
     var body: some View {
         VStack(spacing: 0) {

@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.1.0
+- Mond: deutlich genauere Kratererkennung. Die Sonnenrichtung wird aus Licht/Schatten-Paaren und dem beleuchteten Mondrand bestimmt; Krater werden als Paar aus Schatten und beleuchteter Innenwand erkannt.
+- Randnahe Krater werden als Ellipsen vermessen (Durchmesser entlang der langen Achse, Angabe des Blickwinkels)
+- Große, flache Krater werden über ihre Schattensichel erkannt
+- Dunkle Maria gehören jetzt zur Mondfläche (vorher wurden dort keine Krater gesucht)
+
 ## 1.0.0
 - Erste Version von Sky Reader für macOS 15+ (Apple Silicon)
 - Offline-Plate-Solving gegen mitgelieferten Sternkatalog (blind, ohne Vorwissen über das Bildfeld)

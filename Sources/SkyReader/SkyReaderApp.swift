@@ -70,7 +70,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     }
 
     private func showSplash() {
-        if CommandLine.arguments.contains("--selftest"), let out = CommandLine.arguments.last {
+        if let i = CommandLine.arguments.firstIndex(of: "--selftest"), CommandLine.arguments.count > i + 2 {
+            let out = CommandLine.arguments[i + 2]
             // Splash zusätzlich als Bild ablegen (Selbsttest)
             DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) {
                 MainActor.assumeIsolated {
@@ -133,9 +134,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         })
         if let u = pendingOpen.first { state.load(url: u) }
         pendingOpen = []
-        if let i = CommandLine.arguments.firstIndex(of: "--selftest"), CommandLine.arguments.count > i + 2 {
-            SelfTest.run(image: URL(fileURLWithPath: CommandLine.arguments[i + 1]),
-                         out: URL(fileURLWithPath: CommandLine.arguments[i + 2]), state: state, window: w)
+        let args = CommandLine.arguments
+        if let i = args.firstIndex(of: "--selftest"), args.count > i + 2 {
+            let moon = args.firstIndex(of: "--moon").flatMap { args.count > $0 + 1 ? URL(fileURLWithPath: args[$0 + 1]) : nil }
+            SelfTest.run(image: URL(fileURLWithPath: args[i + 1]), moon: moon,
+                         out: URL(fileURLWithPath: args[i + 2]), state: state, window: w)
             return
         }
         if updater.autoCheck {

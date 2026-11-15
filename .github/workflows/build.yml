@@ -39,8 +39,8 @@ jobs:
         continue-on-error: true
         run: |
           mkdir -p selftest
-          ( "dist/Sky Reader.app/Contents/MacOS/SkyReader" --selftest Resources/Images/splash.jpg "$PWD/selftest" & PID=$!; \
-            for i in $(seq 1 150); do kill -0 $PID 2>/dev/null || break; sleep 1; done; kill $PID 2>/dev/null || true )
+          ( "dist/Sky Reader.app/Contents/MacOS/SkyReader" --selftest Resources/Images/splash.jpg "$PWD/selftest" --moon Tests/Fixtures/moon.jpg & PID=$!; \
+            for i in $(seq 1 300); do kill -0 $PID 2>/dev/null || break; sleep 1; done; kill $PID 2>/dev/null || true )
           ls -la selftest
           cat selftest/report.txt || true
       - name: Selbsttest-Vorschau ins Log
@@ -51,7 +51,7 @@ jobs:
           for f in selftest/*.png selftest/*.jpg; do
             [ -f "$f" ] || continue
             n="$(basename "${f%.*}")"
-            sips -Z 1500 -s format jpeg -s formatOptions 72 "$f" --out "preview/$n.jpg" >/dev/null
+            sips -Z 2200 -s format jpeg -s formatOptions 80 "$f" --out "preview/$n.jpg" >/dev/null
             echo "=====BEGIN $n.jpg====="
             base64 -b 120 -i "preview/$n.jpg"
             echo "=====END $n.jpg====="
