@@ -1,0 +1,6 @@
+.catalog-cache/
+.build/
+*.xcodeproj/xcuserdata/
+.DS_Store
+/dist/
+.swiftpm/

@@ -1,0 +1,46 @@
+name: Kataloge erzeugen
+
+# Lädt Tycho-2, OpenNGC, LDN, Barnard, Sharpless, LBN, vdB, Cederblad, MPC-Kometen und
+# USGS-Mondkrater und committet die kompakten Dateien nach Resources/Catalogs.
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'Tools/build_catalogs.py'
+      - '.github/workflows/catalogs.yml'
+  schedule:
+    - cron: '17 3 * * 1'   # wöchentlich: aktuelle Kometenbahnen
+
+permissions:
+  contents: write
+
+concurrency:
+  group: catalogs-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Kataloge erzeugen
+        run: python3 Tools/build_catalogs.py --out Resources/Catalogs --cache .catalog-cache
+      - name: Ergebnis committen
+        run: |
+          ls -la Resources/Catalogs
+          git config user.name "sky-reader-bot"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add Resources/Catalogs
+          if git diff --cached --quiet; then
+            echo "Keine Änderungen"
+          else
+            git commit -m "Kataloge aktualisiert ($(date -u +%Y-%m-%d))"
+            for i in 1 2 3 4; do
+              git pull --rebase origin "${GITHUB_REF_NAME}" && git push origin "HEAD:${GITHUB_REF_NAME}" && break
+              sleep $((i*5))
+            done
+          fi
