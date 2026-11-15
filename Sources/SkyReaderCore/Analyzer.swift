@@ -61,6 +61,9 @@ public struct LogEntry: Codable, Sendable, Identifiable, Hashable {
     public var level: Level
     public var message: String
     public var progress: Double?
+    public init(time: Date, level: Level, message: String, progress: Double? = nil) {
+        self.time = time; self.level = level; self.message = message; self.progress = progress
+    }
 }
 
 public struct AnalysisError: LocalizedError {
@@ -150,7 +153,15 @@ public final class SkyAnalyzer: @unchecked Sendable {
         let desc = Descriptions.shared
         let inField = dso.objects(in: wcsFull, density: settings.density, categories: settings.categories, isHighlight: desc.isHighlight)
         var objects: [FoundObject] = []
+        // Mehrere Katalognummern desselben Objekts (z. B. Rosettennebel) → nur die größte Komponente beschriften
+        var bestForName: [String: (String, Double)] = [:]
+        for (d, _, _, r) in inField {
+            guard let cur = desc.curatedEntry(for: d) else { continue }
+            if let b = bestForName[cur.name], b.1 >= r { continue }
+            bestForName[cur.name] = (d.id, r)
+        }
         for (d, x, y, r) in inField {
+            if let cur = desc.curatedEntry(for: d), bestForName[cur.name]?.0 != d.id { continue }
             let inf = desc.info(for: d)
             objects.append(FoundObject(id: d.id, label: d.displayID, type: d.type, x: x, y: y, radius: r, number: nil,
                                        drawCircle: true, info: inf, confidence: 1, ra: d.ra, dec: d.dec))
