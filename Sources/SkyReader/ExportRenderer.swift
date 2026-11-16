@@ -128,6 +128,7 @@ enum ExportRenderer {
         if result.kind == .moon && options.detailed {
             add(result.summary.scientific, size: base * 0.8, color: primary.withAlphaComponent(0.85), after: base * 0.8)
         }
+        var shownTexts = Set<String>()
         for o in objects {
             let dot = NSAttributedString(string: "● ", attributes: [.font: NSFont.systemFont(ofSize: base * 0.8), .foregroundColor: Theme.nsColor(for: o.type)])
             out.append(dot)
@@ -135,9 +136,10 @@ enum ExportRenderer {
             let factKeys = ["Objekttyp", "Kratertyp", "Entfernung", "Ausdehnung", "Geschätzter Durchmesser", "Helligkeit", "Alter", "Abstand zur Erde", "Perihel"]
             let fl = o.info.facts.filter { factKeys.contains($0.label) }.prefix(options.detailed ? 6 : 3).map { "\($0.label): \($0.value)" }.joined(separator: "  ·  ")
             if !fl.isEmpty { add(fl, size: base * 0.72, color: secondary, after: base * 0.3) }
-            if !o.info.layman.isEmpty { add(o.info.layman, size: base * 0.82, color: primary.withAlphaComponent(0.88), after: base * (options.detailed ? 0.3 : 0.75)) }
+            // gleiche Laientexte (z. B. je Kratertyp) nur einmal zeigen
+            if !o.info.layman.isEmpty && shownTexts.insert(o.info.layman).inserted { add(o.info.layman, size: base * 0.82, color: primary.withAlphaComponent(0.88), after: base * (options.detailed ? 0.3 : 0.75)) }
             if options.detailed {
-                if !o.info.scientific.isEmpty { add(o.info.scientific, size: base * 0.76, color: primary.withAlphaComponent(0.75), after: base * 0.3) }
+                if !o.info.scientific.isEmpty && shownTexts.insert(o.info.scientific).inserted { add(o.info.scientific, size: base * 0.76, color: primary.withAlphaComponent(0.75), after: base * 0.3) }
                 if !o.info.latest.isEmpty {
                     out.append(NSAttributedString(string: "Neueste Erkenntnisse: ", attributes: [.font: NSFont.systemFont(ofSize: base * 0.76, weight: .semibold), .foregroundColor: accent]))
                     add(o.info.latest, size: base * 0.76, color: primary.withAlphaComponent(0.75), after: base * 0.75)
