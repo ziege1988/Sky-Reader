@@ -36,6 +36,11 @@ codesign --verify --verbose "$APP"
 STAGE="dist/dmg"; mkdir -p "$STAGE"
 cp -R "$APP" "$STAGE/"
 ln -s /Applications "$STAGE/Programme"
-hdiutil create -volname "Sky Reader $VERSION" -srcfolder "$STAGE" -ov -format UDZO "dist/SkyReader-$VERSION.dmg" >/dev/null
+# hdiutil schlägt auf CI-Runnern gelegentlich mit "Resource busy" fehl → bis zu 5 Versuche
+for i in 1 2 3 4 5; do
+  if hdiutil create -volname "Sky Reader $VERSION" -srcfolder "$STAGE" -ov -format UDZO "dist/SkyReader-$VERSION.dmg" >/dev/null; then break; fi
+  echo "hdiutil fehlgeschlagen (Versuch $i) – neuer Versuch"; sleep $((i * 5))
+  [ "$i" = 5 ] && exit 1
+done
 rm -rf "$STAGE"
 ls -la dist
