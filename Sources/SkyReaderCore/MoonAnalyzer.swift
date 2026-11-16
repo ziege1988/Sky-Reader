@@ -100,30 +100,39 @@ public enum MoonAnalyzer {
     /// RANSAC-Kreisanpassung an die scharfe Hell-Dunkel-Kante zum schwarzen Himmel
     public static func fitLimb(_ img: GrayImage, det: MoonDetection) -> LimbCircle? {
         let w = img.width, h = img.height
-        let sm = img.boxBlurred(radius: 1)
+        let sm = img.boxBlurred(radius: 2)
+        // Himmel- und Mondhelligkeit
+        var sample = stride(from: 0, to: sm.pixels.count, by: 5).map { sm.pixels[$0] }
+        sample.sort()
+        let sky = sample[Int(Double(sample.count - 1) * 0.02)]
+        var litSum: Float = 0, litN: Float = 0
+        for v in sample where v > det.threshold { litSum += v; litN += 1 }
+        let lit = litN > 0 ? litSum / litN : det.threshold * 2
+        let mThr = sky + 0.25 * (lit - sky), skyThr = sky + 0.1 * (lit - sky)
         var pts: [(Double, Double)] = []
-        let dark = det.threshold * 0.35
-        let step = 2
-        for y in stride(from: 4, to: h - 4, by: step) {
-            for x in stride(from: 4, to: w - 4, by: step) {
+        for y in stride(from: 6, to: h - 6, by: 2) {
+            for x in stride(from: 6, to: w - 6, by: 2) {
                 let v = sm[x, y]
-                if v <= det.threshold { continue }
-                // Nachbar in 4 px Abstand sehr dunkel → Kantenpunkt
-                var edge = false
-                for (dx, dy) in [(4, 0), (-4, 0), (0, 4), (0, -4)] where sm[x + dx, y + dy] < dark { edge = true }
-                if !edge { continue }
-                // Kante muss scharf sein (Terminator ist weich): Gradient über 3 px
-                var sharp = false
-                for (dx, dy) in [(3, 0), (-3, 0), (0, 3), (0, -3)] where sm[x, y] - sm[x + dx, y + dy] > det.threshold * 0.8 { sharp = true }
-                if sharp { pts.append((Double(x), Double(y))) }
+                guard v > mThr else { continue }
+                // Randpixel der Mondfläche?
+                guard sm[x + 2, y] <= mThr || sm[x - 2, y] <= mThr || sm[x, y + 2] <= mThr || sm[x, y - 2] <= mThr else { continue }
+                // Gradientenrichtung (nach außen = dunkler)
+                let gx = Double(sm[x + 1, y] - sm[x - 1, y]), gy = Double(sm[x, y + 1] - sm[x, y - 1])
+                let gl = hypot(gx, gy)
+                guard gl > 1e-6 else { continue }
+                let ux = gx / gl, uy = gy / gl   // zeigt zur helleren Seite (Mond)
+                let inside = sm.sample(Double(x) + ux * 4, Double(y) + uy * 4)
+                let outside = sm.sample(Double(x) - ux * 4, Double(y) - uy * 4)
+                // scharfer Übergang zu echtem Himmel (Terminator ist weich und hat keinen schwarzen Himmel dahinter)
+                if inside - outside > 0.45 * (lit - sky) && outside < skyThr { pts.append((Double(x), Double(y))) }
             }
         }
         guard pts.count >= 30 else { return nil }
         var rng = SystemRandomNumberGenerator()
         var best: LimbCircle?
         let minR = Double(min(w, h)) * 0.15, maxR = Double(max(w, h)) * 25
-        let tol = 2.5
-        for _ in 0..<1500 {
+        let tol = 2.0
+        for _ in 0..<2000 {
             let a = pts[Int.random(in: 0..<pts.count, using: &rng)]
             let b = pts[Int.random(in: 0..<pts.count, using: &rng)]
             let c = pts[Int.random(in: 0..<pts.count, using: &rng)]
@@ -132,7 +141,8 @@ public enum MoonAnalyzer {
             for p in pts where abs(hypot(p.0 - circ.cx, p.1 - circ.cy) - circ.r) < tol { n += 1 }
             if best == nil || n > best!.inliers { best = LimbCircle(cx: circ.cx, cy: circ.cy, r: circ.r, inliers: n) }
         }
-        guard var b = best, b.inliers >= max(30, pts.count / 5) else { return nil }
+        if ProcessInfo.processInfo.environment["SR_DEBUG"] != nil { print("limb pts \(pts.count) best \(String(describing: best))") }
+        guard var b = best, b.inliers >= max(30, pts.count / 4) else { return nil }
         // Verfeinern (algebraischer Fit auf Inliern)
         let inl = pts.filter { abs(hypot($0.0 - b.cx, $0.1 - b.cy) - b.r) < tol }
         if let r = kasaFit(inl) { b = LimbCircle(cx: r.cx, cy: r.cy, r: r.r, inliers: inl.count) }
@@ -244,7 +254,7 @@ public enum MoonAnalyzer {
     /// 3. Krater = kompakter Schatten + beleuchtete Innenwand auf der sonnenabgewandten Seite (Ellipse, da randnah verkürzt)
     /// 4. Große, flache Krater: Schattensichel + gegenüberliegende Lichtsichel auf gemeinsamem Kreis
     public static func scanCraters(_ input: GrayImage, maxCount: Int) -> CraterScan {
-        let (img, f) = input.limited(maxDimension: 1300)
+        let (img, f) = input.limited(maxDimension: 1700)
         let w = img.width, h = img.height, n = w * h
         let ff = Double(f)
         // Normierung
