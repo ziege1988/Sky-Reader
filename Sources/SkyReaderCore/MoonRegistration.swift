@@ -330,7 +330,7 @@ public enum MoonRegistration {
             ("Roman", "römischer"), ("Egyptian", "ägyptischer"), ("Indian", "indischer"), ("Canadian", "kanadischer"),
             ("Flemish", "flämischer"), ("Croatian", "kroatischer"), ("Ukrainian", "ukrainischer"), ("Estonian", "estnischer"),
             ("Mexican", "mexikanischer"), ("Australian", "australischer"), ("Turkish", "türkischer"), ("Armenian", "armenischer"),
-            ("Byzantine", "byzantinischer"), (" and ", " und "), ("Named to honor", "Benannt zu Ehren von"), ("Named for", "Benannt nach"),
+            ("Byzantine", "byzantinischer"), ("unkn", "?"), ("Unkn", "?"), (" and ", " und "), ("Named to honor", "Benannt zu Ehren von"), ("Named for", "Benannt nach"),
             ("Named from", "Benannt nach"), ("Hero of", "Held aus"), ("mythology", "Mythologie"), ("century", "Jh."),
             ("B.C.", "v. Chr."), ("A.D.", "n. Chr."), ("c. ", "um "), ("Greek mythology", "griechische Mythologie"),
         ]

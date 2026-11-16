@@ -146,7 +146,7 @@ enum ExportRenderer {
             let dot = NSAttributedString(string: "● ", attributes: [.font: NSFont.systemFont(ofSize: base * 0.8), .foregroundColor: Theme.nsColor(for: o.type)])
             out.append(dot)
             add(o.info.title, size: base * 1.08, weight: .semibold, color: primary, after: base * 0.12)
-            let factKeys = ["Objekttyp", "Kratertyp", "Entfernung", "Ausdehnung", "Geschätzter Durchmesser", "Helligkeit", "Alter", "Abstand zur Erde", "Perihel"]
+            let factKeys = ["Objekttyp", "Kratertyp", "Durchmesser", "Selenografische Lage", "Namensgeber", "Entfernung", "Ausdehnung", "Geschätzter Durchmesser", "Helligkeit", "Alter", "Abstand zur Erde", "Perihel"]
             let fl = o.info.facts.filter { factKeys.contains($0.label) }.prefix(options.detailed ? 6 : 3).map { "\($0.label): \($0.value)" }.joined(separator: "  ·  ")
             if !fl.isEmpty { add(fl, size: base * 0.72, color: secondary, after: base * 0.3) }
             // gleiche Laientexte (z. B. je Kratertyp) nur einmal zeigen
