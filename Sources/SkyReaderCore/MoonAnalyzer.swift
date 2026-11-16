@@ -563,12 +563,56 @@ public enum MoonAnalyzer {
         // Kraternamen: Lage des Mondes über den Abgleich mit dem IAU-Kraterkatalog bestimmen
         // Aufnahmedatum: aus Einstellungen/CLI oder per Rückfrage (Popup in der App)
         var ephem: MoonEphemeris?
+        var dateIsEstimate = false
+        let fileDate = FileNameDate.parse(metadata.fileName)
+        // Krater für den Katalogabgleich (Schatten- und Ringwall-Detektor)
+        let regScan = scanCraters(img, maxCount: 40, limb: limb)
+        let rings = RingDetector.detect(img, maxCount: 60)
+        let merged = RingDetector.merge(rings: rings, shadows: regScan.craters)
+        info("Ringwall-Detektor: \(rings.count) Krater, zusammen mit Schatten-Erkennung \(merged.count)")
+        try check()
+        // Mit Mondrand: Lage zuerst ohne Datum bestimmen – daraus lässt sich das Aufnahmedatum schätzen
+        var pose0: MoonPose?
+        var estimate: MoonDateEstimate?
+        var estimateNote: String?
+        if settings.moonDate == nil {
+            if let l = limb {
+                step("Mondlage wird bestimmt", 0.5)
+                pose0 = MoonRegistration.register(craters: merged, limb: l, width: img.width, height: img.height, ephemeris: nil,
+                                                  log: info, isCancelled: { false })
+                try check()
+                if let p = pose0 {
+                    step("Aufnahmedatum wird aus dem Bild berechnet", 0.55)
+                    estimate = MoonDateEstimator.estimate(pose: p, image: img, threshold: detection.threshold, fileNameDate: fileDate)
+                    if let est = estimate {
+                        let df = DateFormatter(); df.locale = Locale(identifier: "de_DE"); df.dateStyle = .long; df.timeStyle = .short
+                        info(String(format: "Datum aus dem Bild: %@ (± %.0f h, %@)%@", df.string(from: est.best.date), est.timeUncertaintyHours,
+                                    est.quality == .good ? "eindeutig" : "unsicher",
+                                    est.alternatives.isEmpty ? "" : " – Alternativen: " + est.alternatives.map { df.string(from: $0.date) }.joined(separator: "; ")))
+                    } else {
+                        estimateNote = "Die Licht-Schatten-Grenze ist nicht im Bild – das Datum lässt sich daraus nicht berechnen."
+                    }
+                } else {
+                    estimateNote = "Die Mondlage ließ sich ohne Datum nicht bestimmen – keine Berechnung möglich."
+                }
+            } else {
+                estimateNote = "Ohne sichtbaren Mondrand kann das Datum nicht aus dem Bild berechnet werden."
+            }
+        }
         if let d = settings.moonDate {
             ephem = MoonEphemeris(date: d)
         } else if let ask = askMoonDate {
-            step("Aufnahmedatum wird erfragt", 0.5)
-            let q = MoonDateQuestion(fileName: metadata.fileName, fromFileName: FileNameDate.parse(metadata.fileName), exifDate: metadata.captureDate)
-            if case .known(let d) = ask(q) { ephem = MoonEphemeris(date: d) } else { info("Aufnahmedatum unbekannt.") }
+            step("Aufnahmedatum wird erfragt", 0.6)
+            let q = MoonDateQuestion(fileName: metadata.fileName, fromFileName: fileDate, exifDate: metadata.captureDate,
+                                     estimate: estimate, estimateNote: estimateNote)
+            if case .known(let d) = ask(q) {
+                ephem = MoonEphemeris(date: d)
+                if let est = estimate, abs(est.best.date.timeIntervalSince(d)) < 3600 { dateIsEstimate = true }
+            } else { info("Aufnahmedatum unbekannt.") }
+        } else if let est = estimate, est.quality == .good {
+            // ohne Rückfrage: eindeutige Schätzung direkt verwenden
+            ephem = MoonEphemeris(date: est.best.date)
+            dateIsEstimate = true
         }
         if let e = ephem {
             let df = DateFormatter(); df.locale = Locale(identifier: "de_DE"); df.dateStyle = .long; df.timeStyle = .short
@@ -577,14 +621,19 @@ public enum MoonAnalyzer {
         }
         var pose: MoonPose?
         if limb != nil || ephem != nil {
-            step("Krater werden mit dem IAU-Katalog abgeglichen", 0.6)
-            let regScan = scanCraters(img, maxCount: 40, limb: limb)
-            let rings = RingDetector.detect(img, maxCount: 60)
-            let merged = RingDetector.merge(rings: rings, shadows: regScan.craters)
-            info("Ringwall-Detektor: \(rings.count) Krater, zusammen mit Schatten-Erkennung \(merged.count)")
+            step("Krater werden mit dem IAU-Katalog abgeglichen", 0.65)
             if let l = limb {
-                pose = MoonRegistration.register(craters: merged, limb: l, width: img.width, height: img.height, ephemeris: ephem,
-                                                 log: info, isCancelled: { false })
+                // Lage ohne Datum weiterverwenden, wenn sie zur Ephemeride passt; sonst mit Datum neu bestimmen
+                if let p = pose0, let e = ephem,
+                   abs(p.subEarth.lat - e.librationLat) > 2.5 || abs(p.subEarth.lon - e.librationLon) > 2.5 {
+                    pose = MoonRegistration.register(craters: merged, limb: l, width: img.width, height: img.height, ephemeris: e,
+                                                     log: info, isCancelled: { false }) ?? p
+                } else if let p = pose0 {
+                    pose = p
+                } else {
+                    pose = MoonRegistration.register(craters: merged, limb: l, width: img.width, height: img.height, ephemeris: ephem,
+                                                     log: info, isCancelled: { false })
+                }
             } else if let e = ephem {
                 info("Kein Mondrand im Bild – Lage wird über Datum, Sonnenstand und Krater bestimmt.")
                 pose = MoonRegistration.registerWithoutLimb(craters: merged, ephemeris: e, sunAngleDeg: regScan.sunAngleDeg,
@@ -643,13 +692,17 @@ public enum MoonAnalyzer {
                     InfoFact("Durchmesser", String(format: "%.0f km", c.d)),
                     InfoFact("Selenografische Lage", String(format: "%.1f° %@, %.1f° %@", abs(c.lat), c.lat >= 0 ? "N" : "S", abs(c.lon), c.lon >= 0 ? "O" : "W").replacingOccurrences(of: ".", with: ",")),
                 ]
+                // Robbins-Datenbank: genaue Vermessung desselben Kraters aus LRO-/Kaguya-Daten
+                if let rb = RobbinsCatalog.match(lat: c.lat, lon: c.lon, diameterKm: c.d, sizeTolerance: 0.3) {
+                    facts.append(InfoFact("Vermessener Durchmesser", String(format: "%.1f km (Robbins 2018)", rb.d).replacingOccurrences(of: ".", with: ",")))
+                }
                 if let o = MoonRegistration.germanOrigin(c.origin) { facts.append(InfoFact("Namensgeber", o)) }
                 if c.isSatellite, let main = c.name.split(separator: " ").dropLast().joined(separator: " ") as String?, !main.isEmpty {
                     facts.append(InfoFact("Art", "Nebenkrater von \(main) (IAU-Bezeichnung)"))
                 }
                 let view = rad2deg(acos(min(1, z)))
                 if view > 45 { facts.append(InfoFact("Perspektive", String(format: "schräg gesehen (ca. %.0f° Blickwinkel)", view))) }
-                facts.append(InfoFact("Quelle", "IAU / USGS Gazetteer of Planetary Nomenclature"))
+                facts.append(InfoFact("Quelle", RobbinsCatalog.isAvailable ? "IAU / USGS Gazetteer; Robbins Lunar Crater Database (2018)" : "IAU / USGS Gazetteer of Planetary Nomenclature"))
                 let inf = ObjectInfo(title: c.name, subtitle: cls.name, facts: facts,
                                      scientific: cls.scientific, latest: cls.latest, layman: cls.layman)
                 objs.append(FoundObject(id: "crater-\(c.name)", label: c.name, type: .moonCrater, x: x * f, y: y * f,
@@ -680,12 +733,34 @@ public enum MoonAnalyzer {
                                         confidence: 0.9, ra: nil, dec: nil))
             }
             // Erkannte Krater ohne Eigennamen (nur bei „Alle“): nummeriert
+            // Mit Robbins-Datenbank: nur Krater übernehmen, die dort vermessen sind (sonst vermutlich Fehlerkennung),
+            // und sie mit Lage und Durchmesser aus dem Katalog beschreiben.
             if settings.craterMode == .all {
-                var n = 0
+                var n = 0, rejected = 0
+                let robbins = RobbinsCatalog.isAvailable
                 for c in craters where !named.contains(where: { hypot($0.1 - c.x, $0.2 - c.y) < max($0.3, c.r) * 0.7 }) {
+                    var match: RobbinsCatalog.Crater?
+                    var sel: (lat: Double, lon: Double)?
+                    if robbins, let s = p.unproject(x: c.x, y: c.y) {
+                        sel = s
+                        match = RobbinsCatalog.match(lat: s.lat, lon: s.lon, diameterKm: 2 * c.r * p.kmPerPixel)
+                        if match == nil { rejected += 1; continue }
+                    }
                     n += 1
-                    objs.append(numberedCrater(c, n: n, f: f, kmPerPx: kmPerPx, limb: limb))
+                    var o = numberedCrater(c, n: n, f: f, kmPerPx: kmPerPx, limb: limb)
+                    if let m = match, let s = sel {
+                        o.info.facts.removeAll { $0.label == "Geschätzter Durchmesser" || $0.label == "Name" }
+                        o.info.facts.insert(InfoFact("Durchmesser", String(format: "%.1f km (Robbins 2018)", m.d).replacingOccurrences(of: ".", with: ",")), at: 1)
+                        o.info.facts.append(InfoFact("Selenografische Lage", String(format: "%.2f° %@, %.2f° %@", abs(Double(m.lat)), m.lat >= 0 ? "N" : "S", abs(Double(m.lon)), m.lon >= 0 ? "O" : "W").replacingOccurrences(of: ".", with: ",")))
+                        o.info.facts.append(InfoFact("Name", "kein IAU-Eigenname – im Robbins-Katalog vermessen"))
+                        let cls = craterClass(Double(m.d))
+                        o.info.subtitle = cls.name
+                        o.info.scientific = cls.scientific; o.info.latest = cls.latest; o.info.layman = cls.layman
+                        _ = s
+                    }
+                    objs.append(o)
                 }
+                if rejected > 0 { info("\(rejected) Kandidaten ohne Gegenstück in der Robbins-Datenbank verworfen.") }
             }
         } else {
             for (i, c) in craters.enumerated() { objs.append(numberedCrater(c, n: i + 1, f: f, kmPerPx: kmPerPx, limb: limb)) }
@@ -698,7 +773,7 @@ public enum MoonAnalyzer {
         ]
         if let e = ephem {
             let df = DateFormatter(); df.locale = Locale(identifier: "de_DE"); df.dateStyle = .medium; df.timeStyle = .short
-            facts.append(InfoFact("Aufnahmezeitpunkt", df.string(from: e.date)))
+            facts.append(InfoFact(dateIsEstimate ? "Aufnahmezeitpunkt (aus dem Bild berechnet)" : "Aufnahmezeitpunkt", df.string(from: e.date)))
             facts.append(InfoFact("Mondphase", e.phaseName))
             facts.append(InfoFact("Beleuchtet", String(format: "%.0f %%", e.illuminatedFraction * 100)))
             facts.append(InfoFact("Mondalter", String(format: "%.1f Tage", e.ageDays).replacingOccurrences(of: ".", with: ",")))

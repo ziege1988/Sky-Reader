@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.5.0
+- **Datum aus dem Bild berechnet**: Ist der Mondrand im Bild, bestimmt Sky Reader zuerst die Lage des Mondes (Libration) und die Lage der Licht-Schatten-Grenze (Colongitude) und sucht daraus den passenden Aufnahmezeitpunkt. Dieser ist im Datums-Popup vorausgewählt und kann korrigiert werden; ähnlich gut passende Alternativen sind anklickbar. Ein Tag im Dateinamen ohne Jahr (z. B. „13.05“) wird berücksichtigt – das Jahr wird dann berechnet.
+- **Robbins Lunar Crater Database (2018)** zusätzlich zur IAU-Nomenklatur (sobald der Katalog-Build sie laden kann): genaue Durchmesser benannter Krater, Lage und Größe unbenannter Krater; erkannte Krater ohne Gegenstück im Katalog werden als Fehlerkennung verworfen.
+
 ## 1.4.0
 - **Beobachtungstagebuch**: Aufnahmen mit Analyse, Ort, Ausrüstung, Bedingungen und Notizen ablegen; übersichtliche Kachelansicht mit Suche und Filter (Himmel/Mond/Kometen). Überschrift automatisch: größter Nebel im Bild bzw. „Mond – größter Krater“.
 - **Mond-Datum**: Bei Mondaufnahmen fragt Sky Reader nach Datum/Uhrzeit (Vorschlag aus dem Dateinamen, z. B. „…_13.05.jpg“). Daraus werden Libration, Sonnenstand, Phase und Beleuchtung berechnet.

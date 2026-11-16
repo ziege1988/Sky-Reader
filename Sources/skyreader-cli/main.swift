@@ -39,6 +39,8 @@ if let k = args.firstIndex(of: "--rings"), args.count > k + 1 {
     exit(0)
 }
 meta.fileName = URL(fileURLWithPath: path).lastPathComponent
+// --name „Mond_13.05.jpeg“: Dateinamen für die Datumserkennung vorgeben (Entwicklung)
+if let k = args.firstIndex(of: "--name"), args.count > k + 1 { meta.fileName = args[k + 1] }
 meta.originalWidth = img.width; meta.originalHeight = img.height
 let t0 = Date()
 do {

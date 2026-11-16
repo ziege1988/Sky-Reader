@@ -564,6 +564,10 @@ def parse_dbf(data):
 
 
 ROBBINS_URLS = [
+    # offizieller Download laut USGS-Produktseite „Moon Crater Database v1 Robbins“ (ca. 93 MB)
+    "https://astropedia.astrogeology.usgs.gov/download/Moon/Research/Craters/lunar_crater_database_robbins_2018.zip",
+    "https://astropedia.astrogeology.usgs.gov/download/Moon/Research/Craters/lunar_crater_database_robbins_2018",
+    "https://astropedia.astrogeology.usgs.gov/download/Moon/Research/Craters/lunar_crater_database_robbins_2018.csv",
     "https://pdsimage2.wr.usgs.gov/Individual_Investigations/moon_lro.kaguya_multi_craterdatabase_robbins_2018/data/lunar_crater_database_robbins_2018.csv",
     "https://pdsimage2.wr.usgs.gov/Individual_Investigations/moon_lro.kaguya_multi_craterdatabase_robbins_2018/data/lunar_crater_database_robbins_2018_bundle/data/lunar_crater_database_robbins_2018.csv",
     "https://astrogeology.usgs.gov/ckan/dataset/a2bd2e4c-4c35-4e6e-a6fc-bc1d3ff9f8c6/resource/2b7bdb41-3a0d-4d53-9c4e-bfc4dd4a5c3a/download/lunar_crater_database_robbins_2018.csv",
@@ -686,13 +690,16 @@ def load_robbins(cache, source_dir, min_d=3.0):
         raw = fetch(u, cache, "robbins_2018" + os.path.splitext(u)[1], source_dir, timeout=900, retries=2)
         if raw:
             log(f"  Robbins OK: {u} ({len(raw) / 1e6:.0f} MB)")
-            if u.lower().endswith(".zip"):
+            if raw[:2] == b"PK":
                 z = zipfile.ZipFile(io.BytesIO(raw))
                 names = [n for n in z.namelist() if n.lower().endswith(".csv")]
                 log(f"  ZIP-Inhalt: {z.namelist()[:10]}")
                 raw = z.read(max(names, key=lambda n: z.getinfo(n).file_size)) if names else None
-            elif u.lower().endswith(".gz"):
+            elif raw[:2] == b"\x1f\x8b":
                 raw = gzip.decompress(raw)
+            elif raw[:200].lstrip().lower().startswith((b"<!doctype", b"<html")):
+                log(f"  {u}: HTML statt Daten – übersprungen")
+                raw = None
             if raw:
                 break
     if not raw:

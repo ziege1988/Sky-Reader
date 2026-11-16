@@ -31,9 +31,35 @@ struct MoonDatePanel: View {
                 }
             }
             .font(.system(size: 12))
+            if let est = question.estimate {
+                VStack(alignment: .leading, spacing: 6) {
+                    Label(estimateLine(est), systemImage: "function")
+                        .font(.system(size: 11.5, weight: .medium))
+                        .foregroundStyle(est.quality == .good ? Theme.success : Theme.warning)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Text(estimateDetail(est))
+                        .font(.system(size: 10.5)).foregroundStyle(Theme.textSecondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                    if !est.alternatives.isEmpty {
+                        HStack(spacing: 6) {
+                            Text("Ebenfalls möglich:").font(.system(size: 10.5)).foregroundStyle(Theme.textSecondary)
+                            ForEach(est.alternatives, id: \.self) { a in
+                                Button(Self.format(a.date)) { date = a.date; timeKnown = true }
+                                    .buttonStyle(.link).font(.system(size: 10.5))
+                            }
+                            Button("Berechnet") { date = est.best.date; timeKnown = true }
+                                .buttonStyle(.link).font(.system(size: 10.5))
+                        }
+                    }
+                }
+            } else if let note = question.estimateNote {
+                Label(note, systemImage: "function")
+                    .font(.system(size: 11)).foregroundStyle(Theme.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
             if let f = question.fromFileName {
-                Label("Aus dem Dateinamen übernommen („\(f.text)“)\(f.yearKnown ? "" : " – das Jahr bitte prüfen")", systemImage: "doc.text.magnifyingglass")
-                    .font(.system(size: 11)).foregroundStyle(Theme.success)
+                Label("Datum im Dateinamen: „\(f.text)“\(f.yearKnown ? "" : (question.estimate != nil ? " – Jahr aus dem Bild berechnet" : " – das Jahr bitte prüfen"))", systemImage: "doc.text.magnifyingglass")
+                    .font(.system(size: 11)).foregroundStyle(question.estimate == nil ? Theme.success : Theme.textSecondary)
             }
             if let e = question.exifDate {
                 Label("Kamera-Zeitstempel (oft unzuverlässig): \(Self.format(e))", systemImage: "camera")
@@ -56,8 +82,29 @@ struct MoonDatePanel: View {
         .background(RoundedRectangle(cornerRadius: 12).fill(Theme.panelRaised))
         .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(Theme.accent.opacity(0.5)))
         .onAppear {
-            if let f = question.fromFileName { date = f.date } else if let e = question.exifDate { date = e }
+            if let est = question.estimate { date = est.best.date; timeKnown = true }
+            else if let f = question.fromFileName { date = f.date } else if let e = question.exifDate { date = e }
         }
+    }
+
+    func estimateLine(_ e: MoonDateEstimate) -> String {
+        let h = Int(e.timeUncertaintyHours.rounded())
+        let unc = e.measuredColongitude != nil && h <= 24 ? " (Uhrzeit ± \(max(1, h)) h)" : ""
+        return "Aus dem Bild berechnet: \(Self.format(e.best.date))\(unc)" + (e.quality == .good ? "" : " – unsicher, bitte prüfen")
+    }
+
+    func estimateDetail(_ e: MoonDateEstimate) -> String {
+        var s = String(format: "Libration %+.1f°/%+.1f°", e.measuredLibrationLat, e.measuredLibrationLon)
+            .replacingOccurrences(of: ".", with: ",") + " aus der Kraterlage"
+        if let c = e.measuredColongitude {
+            s += String(format: ", Terminator bei Colongitude %.0f°", c)
+        } else {
+            s += ", kein Terminator im Bild"
+        }
+        s += " → \(e.best.phaseName), \(Int((e.best.illuminatedFraction * 100).rounded())) % beleuchtet."
+        if e.usedFileNameDate { s += " Der Tag aus dem Dateinamen wurde berücksichtigt." }
+        s += " Passt das nicht, Datum einfach korrigieren."
+        return s
     }
 
     var resolvedDate: Date {

@@ -63,6 +63,10 @@ public struct MoonDateQuestion: Sendable {
     public var fromFileName: FileNameDate.Result?
     /// EXIF-Zeitpunkt (oft unzuverlässig)
     public var exifDate: Date?
+    /// Aus dem Bild berechneter Zeitpunkt (Libration + Terminator), falls bestimmbar
+    public var estimate: MoonDateEstimate?
+    /// Warum keine Schätzung möglich war (für den Hinweis im Popup)
+    public var estimateNote: String?
 }
 
 public enum MoonDateAnswer: Sendable {

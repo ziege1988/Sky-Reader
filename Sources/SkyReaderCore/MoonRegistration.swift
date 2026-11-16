@@ -79,6 +79,75 @@ public struct MoonPose: Sendable {
     }
 
     public var kmPerPixel: Double { MoonAnalyzer.moonRadiusKm / radius }
+
+    /// Selenografische Lage eines Bildpunkts (nil, wenn außerhalb der Mondscheibe)
+    public func unproject(x: Double, y: Double) -> (lat: Double, lon: Double)? {
+        var vx = (x - cx) / radius
+        let vy = -(y - cy) / radius
+        let q = 1 - vx * vx - vy * vy
+        guard q > 0 else { return nil }
+        let vz = q.squareRoot()
+        if mirrored { vx = -vx }
+        // Körper = Rᵀ · Kamera
+        let r = rotation
+        let bx = r[0] * vx + r[3] * vy + r[6] * vz
+        let by = r[1] * vx + r[4] * vy + r[7] * vz
+        let bz = r[2] * vx + r[5] * vy + r[8] * vz
+        return (rad2deg(asin(max(-1, min(1, bz)))), rad2deg(atan2(by, bx)))
+    }
+}
+
+/// Robbins (2018) Lunar Crater Database: rund 1,3 Mio. vermessene Krater (auch ohne Eigennamen).
+/// Ergänzt die IAU-Nomenklatur um genaue Durchmesser und bestätigt erkannte, unbenannte Krater.
+public enum RobbinsCatalog {
+    public struct Crater: Sendable { public var lat: Float; public var lon: Float; public var d: Float }
+    nonisolated(unsafe) private static var cached: [Crater]??
+
+    /// Nach Breite sortierte Liste (leer, wenn die Datei fehlt)
+    public static func all() -> [Crater] {
+        if let c = cached { return c ?? [] }
+        guard let u = ResourceLocator.catalogURL("moon_robbins.bin"), let d = try? Data(contentsOf: u), d.count >= 12,
+              d.prefix(4) == Data("SRMC".utf8) else { cached = .some(nil); return [] }
+        let n = d.withUnsafeBytes { Int($0.loadUnaligned(fromByteOffset: 8, as: UInt32.self).littleEndian) }
+        guard d.count >= 12 + n * 12 else { cached = .some(nil); return [] }
+        var out = [Crater](); out.reserveCapacity(n)
+        d.withUnsafeBytes { b in
+            for i in 0..<n {
+                let o = 12 + i * 12
+                func f(_ k: Int) -> Float { Float(bitPattern: b.loadUnaligned(fromByteOffset: o + k, as: UInt32.self).littleEndian) }
+                out.append(Crater(lat: f(0), lon: f(4), d: f(8)))
+            }
+        }
+        cached = .some(out)
+        return out
+    }
+
+    public static var isAvailable: Bool { !all().isEmpty }
+
+    /// Bester Katalogkrater nahe (lat, lon) mit passendem Durchmesser (km); Toleranz relativ zum Durchmesser
+    public static func match(lat: Double, lon: Double, diameterKm: Double, sizeTolerance: Double = 0.5) -> Crater? {
+        let list = all()
+        guard !list.isEmpty else { return nil }
+        let kmPerDeg = MoonAnalyzer.moonRadiusKm * .pi / 180
+        let searchKm = max(3, diameterKm * 0.6)
+        let dLat = searchKm / kmPerDeg
+        // binäre Suche nach der Breite
+        var lo = 0, hi = list.count
+        while lo < hi { let m = (lo + hi) / 2; if Double(list[m].lat) < lat - dLat { lo = m + 1 } else { hi = m } }
+        let p = Vec3(ra: lon, dec: lat)
+        var best: (Crater, Double)?
+        var i = lo
+        while i < list.count, Double(list[i].lat) <= lat + dLat {
+            let c = list[i]; i += 1
+            let cd = Double(c.d)
+            guard abs(cd - diameterKm) <= sizeTolerance * max(cd, diameterKm) else { continue }
+            let distKm = acos(max(-1, min(1, Vec3(ra: Double(c.lon), dec: Double(c.lat)).dot(p)))) * MoonAnalyzer.moonRadiusKm
+            guard distKm <= max(3, 0.5 * max(cd, diameterKm)) else { continue }
+            let score = distKm / max(cd, 1) + abs(Foundation.log(cd / max(diameterKm, 0.1)))
+            if best == nil || score < best!.1 { best = (c, score) }
+        }
+        return best?.0
+    }
 }
 
 public enum MoonRegistration {
