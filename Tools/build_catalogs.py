@@ -626,20 +626,59 @@ def load_moon_nomenclature(cache, source_dir):
     return craters, regions
 
 
+ROBBINS_SEEDS = [
+    "https://pdsimage2.wr.usgs.gov/Individual_Investigations/",
+    "https://astrogeology.usgs.gov/search/map/moon_crater_database_v1_robbins",
+    "https://astrogeology.usgs.gov/search/map/Moon/Research/Craters/lunar_crater_database_robbins_2018",
+    "https://planetarymaps.usgs.gov/mosaic/",
+    "https://pds-geosciences.wustl.edu/missions/lro/",
+]
+
+
+def discover_robbins():
+    """Sucht den Download der Robbins-Datenbank über Verzeichnis- und Projektseiten (Tiefe 3)."""
+    import re, urllib.parse
+    seen, found = set(), []
+    frontier = [(u, 0) for u in ROBBINS_SEEDS]
+    while frontier and len(seen) < 60:
+        u, depth = frontier.pop(0)
+        if u in seen:
+            continue
+        seen.add(u)
+        page = fetch(u, None, None, None, timeout=45, retries=1)
+        if not page:
+            continue
+        html = page.decode("utf-8", "replace")
+        for h in re.findall(r'href="([^"#?]+)"', html):
+            full = urllib.parse.urljoin(u, h)
+            low = full.lower()
+            if "robbins" not in low and "crater" not in low:
+                continue
+            if re.search(r"\.(csv|zip|gz|tab|txt)$", low):
+                found.append(full)
+            elif depth < 3 and full.startswith(("http://", "https://")) and full not in seen:
+                frontier.append((full, depth + 1))
+    log(f"  Robbins-Suche: {len(seen)} Seiten besucht, Kandidaten: {found[:30]}")
+    return found
+
+
 def load_robbins(cache, source_dir, min_d=3.0):
     """Robbins (2018) Lunar Crater Database – alle Krater ab min_d km als kompakte Binärdatei."""
-    for u in ROBBINS_INDEX:
-        idx = fetch(u, cache, None, source_dir, timeout=60, retries=1)
-        if idx:
-            import re
-            links = sorted(set(re.findall(r'href="([^"]+)"', idx.decode("utf-8", "replace"))))
-            log(f"  Robbins-Verzeichnis {u}: {links[:40]}")
     raw = None
-    for u in ROBBINS_URLS:
-        raw = fetch(u, cache, "robbins_2018.csv", source_dir, timeout=900, retries=2)
+    urls = ROBBINS_URLS + [u for u in discover_robbins() if "robbins" in u.lower()]
+    for u in urls:
+        raw = fetch(u, cache, "robbins_2018" + os.path.splitext(u)[1], source_dir, timeout=900, retries=2)
         if raw:
             log(f"  Robbins OK: {u} ({len(raw) / 1e6:.0f} MB)")
-            break
+            if u.lower().endswith(".zip"):
+                z = zipfile.ZipFile(io.BytesIO(raw))
+                names = [n for n in z.namelist() if n.lower().endswith(".csv")]
+                log(f"  ZIP-Inhalt: {z.namelist()[:10]}")
+                raw = z.read(max(names, key=lambda n: z.getinfo(n).file_size)) if names else None
+            elif u.lower().endswith(".gz"):
+                raw = gzip.decompress(raw)
+            if raw:
+                break
     if not raw:
         log("WARNUNG: Robbins-Kraterdatenbank nicht erreichbar")
         return []
