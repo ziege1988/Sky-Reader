@@ -51,7 +51,23 @@ public struct AnalysisSettings: Codable, Sendable, Equatable {
     public var density: DeepSkyCatalog.Density = .normal
     public var categories: Set<ObjectCategory> = Set(ObjectCategory.allCases)
     public var maxAnalysisSize: Int = 2000
+    /// Aufnahmezeitpunkt einer Mondaufnahme (falls bekannt) – ermöglicht Libration/Sonnenstand
+    public var moonDate: Date?
     public init() {}
+}
+
+/// Rückfrage nach dem Aufnahmedatum einer Mondaufnahme
+public struct MoonDateQuestion: Sendable {
+    public var fileName: String
+    /// Datum aus dem Dateinamen (z. B. „…_13.05.jpeg“)
+    public var fromFileName: FileNameDate.Result?
+    /// EXIF-Zeitpunkt (oft unzuverlässig)
+    public var exifDate: Date?
+}
+
+public enum MoonDateAnswer: Sendable {
+    case known(Date)
+    case unknown
 }
 
 public struct LogEntry: Codable, Sendable, Identifiable, Hashable {
@@ -83,7 +99,8 @@ public final class SkyAnalyzer: @unchecked Sendable {
 
     public func analyze(image full: GrayImage, metadata: ImageMetadata, settings: AnalysisSettings,
                         log: @escaping (LogEntry) -> Void,
-                        isCancelled: @escaping () -> Bool) throws -> AnalysisResult {
+                        isCancelled: @escaping () -> Bool,
+                        askMoonDate: ((MoonDateQuestion) -> MoonDateAnswer)? = nil) throws -> AnalysisResult {
         func step(_ m: String, _ p: Double) { log(LogEntry(time: Date(), level: .step, message: m, progress: p)) }
         func info(_ m: String) { log(LogEntry(time: Date(), level: .info, message: m)) }
         func warn(_ m: String) { log(LogEntry(time: Date(), level: .warning, message: m)) }
@@ -109,7 +126,7 @@ public final class SkyAnalyzer: @unchecked Sendable {
         }
         if let m = moon {
             ok(String(format: "Mondoberfläche erkannt (%.0f %% der Bildfläche hell).", m.brightFraction * 100))
-            return try MoonAnalyzer.analyze(img: img, full: full, factor: factor, detection: m, settings: settings,
+            return try MoonAnalyzer.analyze(img: img, full: full, factor: factor, detection: m, settings: settings, metadata: metadata, askMoonDate: askMoonDate,
                                             step: step, info: info, warn: warn, ok: ok, check: check)
         }
         info("Kein Mond erkannt – Analyse als Himmelsaufnahme.")
@@ -148,7 +165,7 @@ public final class SkyAnalyzer: @unchecked Sendable {
             }
             if likeness.plausibleMoon {
                 warn("Kein Sternfeld gefunden – das Bild wird als Mondaufnahme analysiert.")
-                return try MoonAnalyzer.analyze(img: img, full: full, factor: factor, detection: MoonAnalyzer.moonFillingFrame(img), settings: settings,
+                return try MoonAnalyzer.analyze(img: img, full: full, factor: factor, detection: MoonAnalyzer.moonFillingFrame(img), settings: settings, metadata: metadata, askMoonDate: askMoonDate,
                                                 step: step, info: info, warn: warn, ok: ok, check: check)
             }
             throw AnalysisError("Das Sternfeld konnte nicht bestimmt werden. Mögliche Ursachen: zu wenige oder strichförmige Sterne, sehr kleines Bildfeld (< ca. 0,7°) oder ein stark bearbeitetes Bild. Bitte den Fehlerbericht über „Report“ speichern.")

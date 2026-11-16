@@ -322,7 +322,7 @@ public enum MoonAnalyzer {
     /// 2. Sonnenrichtung: Achse aus benachbarten Schatten/Licht-Paaren, Vorzeichen über den beleuchteten Mondrand
     /// 3. Krater = kompakter Schatten + beleuchtete Innenwand auf der sonnenabgewandten Seite (Ellipse, da randnah verkürzt)
     /// 4. Große, flache Krater: Schattensichel + gegenüberliegende Lichtsichel auf gemeinsamem Kreis
-    public static func scanCraters(_ input: GrayImage, maxCount: Int) -> CraterScan {
+    public static func scanCraters(_ input: GrayImage, maxCount: Int, limb: LimbCircle? = nil) -> CraterScan {
         let (img, f) = input.limited(maxDimension: 1700)
         let w = img.width, h = img.height, n = w * h
         let ff = Double(f)
@@ -409,8 +409,10 @@ public enum MoonAnalyzer {
         }
         var refDir: Double
         var fromLimb = false
-        if en > 25 && mn > 0 {
-            refDir = atan2(ey / en - my / mn, ex / en - mx / mn); fromLimb = true
+        if let l = limb {
+            // vermessener Mondrand: Richtung von der Scheibenmitte zum sichtbaren (beleuchteten) Rand
+            refDir = atan2(Double(input.height) / 2 - l.cy, Double(input.width) / 2 - l.cx); fromLimb = true
+            _ = (ex, ey, en)
         } else {
             let g = gauss(I, sigma: minDim / 8)
             var gx = 0.0, gy = 0.0
@@ -535,6 +537,7 @@ public enum MoonAnalyzer {
     // MARK: Gesamtanalyse
 
     static func analyze(img: GrayImage, full: GrayImage, factor: Int, detection: MoonDetection, settings: AnalysisSettings,
+                        metadata: ImageMetadata = ImageMetadata(), askMoonDate: ((MoonDateQuestion) -> MoonDateAnswer)? = nil,
                         step: (String, Double) -> Void, info: (String) -> Void, warn: (String) -> Void, ok: (String) -> Void,
                         check: () throws -> Void) throws -> AnalysisResult {
         let f = Double(factor)
@@ -550,7 +553,7 @@ public enum MoonAnalyzer {
         try check()
         step("Krater werden erkannt", 0.45)
         let maxCount = settings.craterMode == .largest ? 12 : 120
-        let scan = scanCraters(img, maxCount: maxCount)
+        let scan = scanCraters(img, maxCount: maxCount, limb: limb)
         info(String(format: "Sonnenrichtung im Bild: %.0f° (%@)", scan.sunAngleDeg, scan.sunFromLimb ? "aus beleuchtetem Mondrand" : "aus Helligkeitsverlauf"))
         var craters = scan.craters
         // außerhalb des vermessenen Mondrands liegende Kandidaten verwerfen
@@ -558,12 +561,35 @@ public enum MoonAnalyzer {
         info("\(craters.count) Krater erkannt (\(settings.craterMode.germanName)).")
         try check()
         // Kraternamen: Lage des Mondes über den Abgleich mit dem IAU-Kraterkatalog bestimmen
+        // Aufnahmedatum: aus Einstellungen/CLI oder per Rückfrage (Popup in der App)
+        var ephem: MoonEphemeris?
+        if let d = settings.moonDate {
+            ephem = MoonEphemeris(date: d)
+        } else if let ask = askMoonDate {
+            step("Aufnahmedatum wird erfragt", 0.5)
+            let q = MoonDateQuestion(fileName: metadata.fileName, fromFileName: FileNameDate.parse(metadata.fileName), exifDate: metadata.captureDate)
+            if case .known(let d) = ask(q) { ephem = MoonEphemeris(date: d) } else { info("Aufnahmedatum unbekannt.") }
+        }
+        if let e = ephem {
+            let df = DateFormatter(); df.locale = Locale(identifier: "de_DE"); df.dateStyle = .long; df.timeStyle = .short
+            ok(String(format: "Mond am %@: %@, %.0f %% beleuchtet, Libration %+.1f°/%+.1f°", df.string(from: e.date), e.phaseName,
+                      e.illuminatedFraction * 100, e.librationLat, e.librationLon).replacingOccurrences(of: ".", with: ","))
+        }
         var pose: MoonPose?
-        if let l = limb {
+        if limb != nil || ephem != nil {
             step("Krater werden mit dem IAU-Katalog abgeglichen", 0.6)
-            let regScan = scanCraters(img, maxCount: 40)
-            pose = MoonRegistration.register(craters: regScan.craters, limb: l, width: img.width, height: img.height,
-                                             log: info, isCancelled: { false })
+            let regScan = scanCraters(img, maxCount: 40, limb: limb)
+            let rings = RingDetector.detect(img, maxCount: 60)
+            let merged = RingDetector.merge(rings: rings, shadows: regScan.craters)
+            info("Ringwall-Detektor: \(rings.count) Krater, zusammen mit Schatten-Erkennung \(merged.count)")
+            if let l = limb {
+                pose = MoonRegistration.register(craters: merged, limb: l, width: img.width, height: img.height, ephemeris: ephem,
+                                                 log: info, isCancelled: { false })
+            } else if let e = ephem {
+                info("Kein Mondrand im Bild – Lage wird über Datum, Sonnenstand und Krater bestimmt.")
+                pose = MoonRegistration.registerWithoutLimb(craters: merged, ephemeris: e, sunAngleDeg: regScan.sunAngleDeg,
+                                                            width: img.width, height: img.height, log: info, isCancelled: { false })
+            }
             try check()
             if let p = pose {
                 kmPerPx = p.kmPerPixel / f
@@ -574,7 +600,7 @@ public enum MoonAnalyzer {
                 warn("Die Krater konnten dem Katalog nicht eindeutig zugeordnet werden – sie werden nummeriert.")
             }
         } else {
-            warn("Ohne sichtbaren Mondrand ist keine Zuordnung zu offiziellen Kraternamen möglich – Krater werden nummeriert.")
+            warn("Ohne sichtbaren Mondrand und ohne Aufnahmedatum ist keine Zuordnung zu offiziellen Kraternamen möglich – Krater werden nummeriert.")
         }
         step("Kraterdetails werden berechnet", 0.8)
         var objs: [FoundObject] = []
@@ -582,8 +608,11 @@ public enum MoonAnalyzer {
         if let p = pose {
             // Alle benannten Krater im Bildausschnitt
             var named: [(NamedCrater, Double, Double, Double, Double)] = []   // crater, x, y, r(px), z
+            let sunVec = ephem?.subSolarVector
             for c in MoonRegistration.catalog() {
                 guard let q = p.project(lat: c.lat, lon: c.lon), q.z > 0.08 else { continue }
+                // Mit bekanntem Datum: nur Krater, über denen die Sonne steht (Wälle knapp hinter dem Terminator zählen)
+                if let sv = sunVec, Vec3(ra: c.lon, dec: c.lat).dot(sv) < -0.02 { continue }
                 let r = c.d / 2 / p.kmPerPixel
                 guard q.x > 4, q.y > 4, q.x < Double(img.width) - 4, q.y < Double(img.height) - 4 else { continue }
                 guard r >= max(5, minDim / 160) else { continue }
@@ -603,7 +632,9 @@ public enum MoonAnalyzer {
                 named.append((c, q.x, q.y, r, q.z))
             }
             named.sort { $0.0.d > $1.0.d }
-            let limit = settings.craterMode == .largest ? 25 : 150
+            // „Nur die größten“: Hauptkrater; „Alle“: zusätzlich offizielle Nebenkrater
+            if settings.craterMode == .largest { named = named.filter { !$0.0.isSatellite } }
+            let limit = settings.craterMode == .largest ? 25 : 180
             for (c, x, y, r, z) in named.prefix(limit) {
                 let cls = craterClass(c.d)
                 var facts: [InfoFact] = [
@@ -613,6 +644,9 @@ public enum MoonAnalyzer {
                     InfoFact("Selenografische Lage", String(format: "%.1f° %@, %.1f° %@", abs(c.lat), c.lat >= 0 ? "N" : "S", abs(c.lon), c.lon >= 0 ? "O" : "W").replacingOccurrences(of: ".", with: ",")),
                 ]
                 if let o = MoonRegistration.germanOrigin(c.origin) { facts.append(InfoFact("Namensgeber", o)) }
+                if c.isSatellite, let main = c.name.split(separator: " ").dropLast().joined(separator: " ") as String?, !main.isEmpty {
+                    facts.append(InfoFact("Art", "Nebenkrater von \(main) (IAU-Bezeichnung)"))
+                }
                 let view = rad2deg(acos(min(1, z)))
                 if view > 45 { facts.append(InfoFact("Perspektive", String(format: "schräg gesehen (ca. %.0f° Blickwinkel)", view))) }
                 facts.append(InfoFact("Quelle", "IAU / USGS Gazetteer of Planetary Nomenclature"))
@@ -620,6 +654,30 @@ public enum MoonAnalyzer {
                                      scientific: cls.scientific, latest: cls.latest, layman: cls.layman)
                 objs.append(FoundObject(id: "crater-\(c.name)", label: c.name, type: .moonCrater, x: x * f, y: y * f,
                                         radius: r * f, number: nil, drawCircle: false, info: inf, confidence: 0.9, ra: nil, dec: nil))
+            }
+            // Regionen (Maria, Seen, Buchten, Gebirge …) als Bezeichnung ohne Fadenkreuz
+            for reg in MoonRegistration.regions() {
+                let big = ["Mare", "Oceanus", "Lacus", "Sinus", "Palus", "Montes", "Mons", "Vallis"].contains(reg.type)
+                if let sv = ephem?.subSolarVector, Vec3(ra: reg.lon, dec: reg.lat).dot(sv) < -0.02, reg.d < 300 { continue }
+                guard big || settings.craterMode == .all else { continue }
+                guard let q = p.project(lat: reg.lat, lon: reg.lon), q.z > 0.08 else { continue }
+                guard q.x > 10, q.y > 10, q.x < Double(img.width) - 10, q.y < Double(img.height) - 10 else { continue }
+                let r = reg.d / 2 / p.kmPerPixel
+                guard r >= minDim / 30 || reg.type == "Mons" || reg.type == "Montes" else { continue }
+                var facts = [InfoFact("Typ", reg.germanType), InfoFact("Ausdehnung", String(format: "ca. %.0f km", reg.d)),
+                             InfoFact("Selenografische Lage", String(format: "%.1f° %@, %.1f° %@", abs(reg.lat), reg.lat >= 0 ? "N" : "S", abs(reg.lon), reg.lon >= 0 ? "O" : "W").replacingOccurrences(of: ".", with: ","))]
+                if let o = MoonRegistration.germanOrigin(reg.origin), !o.isEmpty { facts.append(InfoFact("Bedeutung", o)) }
+                facts.append(InfoFact("Quelle", "IAU / USGS Gazetteer of Planetary Nomenclature"))
+                let lay = reg.type == "Mare" || reg.type == "Oceanus" || reg.type == "Lacus" || reg.type == "Sinus" || reg.type == "Palus"
+                    ? "Eine dunkle, glatte Ebene aus erstarrter Basaltlava. Frühe Astronomen hielten diese Flächen für Meere – daher der Name."
+                    : "Eine benannte Oberflächenformation des Mondes."
+                let sci = lay.hasPrefix("Eine dunkle")
+                    ? "Maria sind Einschlagbecken, die vor etwa 3–3,8 Mrd. Jahren von Basaltlava aus dem Mondinneren geflutet wurden. Ihr dunkler Farbton stammt vom eisen- und titanreichen Basalt."
+                    : "Bezeichnung gemäß IAU-Nomenklatur."
+                objs.append(FoundObject(id: "region-\(reg.name)", label: reg.name, type: .moon, x: q.x * f, y: q.y * f, radius: r * f,
+                                        number: nil, drawCircle: false,
+                                        info: ObjectInfo(title: reg.name, subtitle: reg.germanType, facts: facts, scientific: sci, latest: "", layman: lay),
+                                        confidence: 0.9, ra: nil, dec: nil))
             }
             // Erkannte Krater ohne Eigennamen (nur bei „Alle“): nummeriert
             if settings.craterMode == .all {
@@ -638,6 +696,15 @@ public enum MoonAnalyzer {
             InfoFact("Alter", "ca. 4,5 Mrd. Jahre"),
             InfoFact(pose != nil ? "Markierte Krater" : "Erkannte Krater", "\(objs.count)"),
         ]
+        if let e = ephem {
+            let df = DateFormatter(); df.locale = Locale(identifier: "de_DE"); df.dateStyle = .medium; df.timeStyle = .short
+            facts.append(InfoFact("Aufnahmezeitpunkt", df.string(from: e.date)))
+            facts.append(InfoFact("Mondphase", e.phaseName))
+            facts.append(InfoFact("Beleuchtet", String(format: "%.0f %%", e.illuminatedFraction * 100)))
+            facts.append(InfoFact("Mondalter", String(format: "%.1f Tage", e.ageDays).replacingOccurrences(of: ".", with: ",")))
+            facts.append(InfoFact("Entfernung zur Erde", String(format: "%.0f km", e.distanceKm)))
+            facts.append(InfoFact("Sonnen-Colongitude", String(format: "%.1f°", e.colongitude).replacingOccurrences(of: ".", with: ",")))
+        }
         if let p = pose {
             let se = p.subEarth
             facts.append(InfoFact("Kraternamen", "\(p.matches) erkannte Krater dem IAU-Katalog zugeordnet"))

@@ -3,6 +3,16 @@ import SkyReaderCore
 
 // Testwerkzeug: skyreader-cli bild.pgm [--all-craters] [--density few|normal|many] [--date 2024-10-20T19:00:00Z] [--json out.json]
 var args = Array(CommandLine.arguments.dropFirst())
+if args.first == "--ephem" {
+    // Mond-Ephemeride für ISO-Zeitpunkte ausgeben (Entwicklung)
+    for s in args.dropFirst() {
+        guard let d = ISO8601DateFormatter().date(from: s) else { continue }
+        let e = MoonEphemeris(date: d)
+        print(String(format: "%@  Libration %+.1f°/%+.1f°  Sub-Sonne %+.1f°/%+.1f°  Colong. %.1f°  beleuchtet %.0f%%  Alter %.1f d  %@",
+                     s, e.librationLat, e.librationLon, e.subSolarLat, e.subSolarLon, e.colongitude, e.illuminatedFraction * 100, e.ageDays, e.phaseName))
+    }
+    exit(0)
+}
 guard let path = args.first else { print("usage: skyreader-cli image.pgm [--all-craters] [--density x] [--date ISO] [--json out]"); exit(1) }
 var settings = AnalysisSettings()
 var meta = ImageMetadata()
@@ -12,7 +22,7 @@ while i < args.count {
     switch args[i] {
     case "--all-craters": settings.craterMode = .all
     case "--density": i += 1; settings.density = DeepSkyCatalog.Density(rawValue: args[i]) ?? .normal
-    case "--date": i += 1; meta.captureDate = ISO8601DateFormatter().date(from: args[i])
+    case "--date": i += 1; meta.captureDate = ISO8601DateFormatter().date(from: args[i]); settings.moonDate = meta.captureDate
     case "--json": i += 1; jsonOut = args[i]
     default: break
     }

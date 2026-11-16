@@ -7,6 +7,38 @@ public struct NamedCrater: Codable, Sendable {
     public var lon: Double
     public var d: Double
     public var origin: String?
+    /// 1 = offizieller Nebenkrater (z. B. „Atlas A“)
+    public var sat: Int?
+    public var isSatellite: Bool { sat == 1 }
+}
+
+/// Benannte Region (Mare, Lacus, Sinus, Mons/Montes, Vallis, Rima, …)
+public struct MoonRegion: Codable, Sendable {
+    public var name: String
+    public var type: String
+    public var lat: Double
+    public var lon: Double
+    public var d: Double
+    public var origin: String?
+
+    /// Deutsche Bezeichnung des Typs
+    public var germanType: String {
+        switch type {
+        case "Mare": return "Mondmeer (Mare)"
+        case "Oceanus": return "Ozean (Oceanus)"
+        case "Lacus": return "Mondsee (Lacus)"
+        case "Sinus": return "Bucht (Sinus)"
+        case "Palus": return "Sumpf (Palus)"
+        case "Mons", "Montes": return "Gebirge"
+        case "Vallis": return "Tal (Vallis)"
+        case "Rima": return "Rille (Rima)"
+        case "Rupes": return "Steilstufe (Rupes)"
+        case "Dorsum": return "Höhenrücken (Dorsum)"
+        case "Catena": return "Kraterkette (Catena)"
+        case "Promontorium": return "Kap (Promontorium)"
+        default: return type
+        }
+    }
 }
 
 /// Lage des Mondes im Bild: Rotation Mond-Körpersystem → Kamera, Spiegelung, Scheibe
@@ -52,6 +84,16 @@ public struct MoonPose: Sendable {
 public enum MoonRegistration {
     nonisolated(unsafe) private static var cached: [NamedCrater]?
 
+    nonisolated(unsafe) private static var cachedRegions: [MoonRegion]?
+
+    public static func regions() -> [MoonRegion] {
+        if let c = cachedRegions { return c }
+        guard let u = ResourceLocator.catalogURL("moon_regions.json"), let d = try? Data(contentsOf: u),
+              let list = try? JSONDecoder().decode([MoonRegion].self, from: d) else { return [] }
+        cachedRegions = list
+        return list
+    }
+
     public static func catalog() -> [NamedCrater] {
         if let c = cached { return c }
         guard let u = ResourceLocator.catalogURL("moon_craters.json"), let d = try? Data(contentsOf: u),
@@ -64,7 +106,11 @@ public enum MoonRegistration {
     /// Wie beim Plate Solving: Winkelabstände zwischen Kraterpaaren sind unabhängig von Drehung und Libration
     /// und werden mit Katalogpaaren passender Größe verglichen; jede Hypothese wird an allen Kratern geprüft.
     public static func register(craters dets: [DetectedCrater], limb: LimbCircle, width: Int, height: Int,
+                                ephemeris: MoonEphemeris? = nil,
                                 log: (String) -> Void = { _ in }, isCancelled: () -> Bool = { false }) -> MoonPose? {
+        // Mit bekanntem Datum: Sub-Erde-Punkt bis auf ~3° bekannt (Topozentrik, Zeitunsicherheit)
+        let subEarth = ephemeris?.subEarthVector
+        let libCos = cos(deg2rad(ephemeris != nil ? 3.0 : 11.0))
         let cat = catalog().filter { $0.d >= 8 && abs($0.lon) < 105 }
         guard cat.count > 50, dets.count >= 6 else { return nil }
         let catVec = cat.map { Vec3(ra: $0.lon, dec: $0.lat) }
@@ -117,8 +163,10 @@ public enum MoonRegistration {
                                 let cs = wj.dot(catVec[l])
                                 if cs < cosLo || cs > cosHi { continue }
                                 guard let rot = triad(V[a], V[b], wj, catVec[l]) else { continue }
-                                // Libration: Blickrichtung im Körpersystem nahe Länge/Breite 0 (±11°)
-                                if rot[6] < cos(deg2rad(11)) { continue }
+                                // Libration: Blickrichtung im Körpersystem nahe Länge/Breite 0 (±11°) bzw. am berechneten Punkt
+                                if let se = subEarth {
+                                    if rot[6] * se.x + rot[7] * se.y + rot[8] * se.z < libCos { continue }
+                                } else if rot[6] < libCos { continue }
                                 let pose = MoonPose(rotation: rot, mirrored: mirror, cx: cx, cy: cy, radius: R, matches: 0, candidates: usable.count)
                                 let (s, _) = score(pose, dets: usable, grid: grid, catVec: catVec, catD: catD,
                                                    width: width, height: height, quickLimit: 14, quickNeed: 3)
@@ -157,6 +205,123 @@ public enum MoonRegistration {
         log(String(format: "Kraterabgleich: %d Krater dem Katalog zugeordnet (nächstbeste andere Lage: %.0f)", pairs.count, runnerUp))
         guard Double(pairs.count) >= need, finalScore >= runnerUp * 1.3 + 1 else { return nil }
         return b.pose
+    }
+
+    /// Registrierung ohne sichtbaren Mondrand – nur mit bekanntem Datum möglich.
+    /// Die Libration (aus der Ephemeride) legt die Projektion fest; die gemessene Sonnenrichtung im Bild
+    /// bestimmt zusammen mit dem Sub-Sonnen-Punkt die Bilddrehung. Gesucht werden dann nur noch Maßstab und Lage.
+    public static func registerWithoutLimb(craters dets: [DetectedCrater], ephemeris eph: MoonEphemeris, sunAngleDeg: Double,
+                                           width: Int, height: Int, log: (String) -> Void = { _ in },
+                                           isCancelled: () -> Bool = { false }) -> MoonPose? {
+        let all = catalog()
+        let e = eph.subEarthVector, sun = eph.subSolarVector
+        // Kamera-Basis (Nord oben, Ost rechts bei Drehung 0)
+        let north = Vec3(0, 0, 1)
+        let y0 = (north - e * north.dot(e)).normalized
+        let x0 = y0.cross(e)
+        // nur sichtbare und beleuchtete Krater
+        let cat = all.filter { c in
+            let w = Vec3(ra: c.lon, dec: c.lat)
+            return c.d >= 6 && w.dot(e) > 0.08 && w.dot(sun) > -0.04   // Wälle knapp hinter dem Terminator noch im Licht
+        }
+        let catVec = cat.map { Vec3(ra: $0.lon, dec: $0.lat) }
+        let catD = cat.map { $0.d }
+        guard cat.count > 50, dets.count >= 8 else { return nil }
+        let grid = Grid(width: width, height: height, cell: 48)
+        func pose(theta: Double, mirror: Bool, R: Double, cx: Double, cy: Double) -> MoonPose {
+            let c = cos(theta), s = sin(theta)
+            let X = mirror ? x0 * c + y0 * s : x0 * c - y0 * s
+            let Y = mirror ? y0 * c - x0 * s : x0 * s + y0 * c
+            return MoonPose(rotation: [X.x, X.y, X.z, Y.x, Y.y, Y.z, e.x, e.y, e.z], mirrored: mirror, cx: cx, cy: cy, radius: R,
+                            matches: 0, candidates: dets.count)
+        }
+        // Scheibenkoordinaten (Einheit: Mondradius) bei bekannter Libration
+        let hyp = cat.indices.filter { !cat[$0].isSatellite && cat[$0].d >= 12 }
+        let hu = hyp.map { catVec[$0].dot(x0) }, hv = hyp.map { catVec[$0].dot(y0) }
+        let hrho = hyp.map { catD[$0] / 2 / MoonAnalyzer.moonRadiusKm }
+        // Sonnenrichtung tangential am Krater (Scheibenkoordinaten)
+        let htu = hyp.map { j -> Double in let p = catVec[j]; return (sun - p * sun.dot(p)).dot(x0) }
+        let htv = hyp.map { j -> Double in let p = catVec[j]; return (sun - p * sun.dot(p)).dot(y0) }
+        let anchors = Array(dets.sorted { $0.strength * $0.r > $1.strength * $1.r }.prefix(14))
+        let alpha = deg2rad(sunAngleDeg)
+        var best: (Double, MoonPose)?
+        var runnerUp = 0.0
+        func angDiff(_ x: Double, _ y: Double) -> Double { abs(atan2(sin(x - y), cos(x - y))) }
+        for (ai, a) in anchors.enumerated() {
+            if isCancelled() { return nil }
+            for (bi, b) in anchors.enumerated() where bi != ai {
+                let vax = b.x - a.x, vay = -(b.y - a.y)
+                let dab = hypot(vax, vay)
+                guard dab > 2 * max(a.r, b.r) else { continue }
+                let q = Foundation.log(a.r / b.r), tt = Foundation.log(dab / a.r)
+                for j in 0..<hyp.count {
+                    for l in 0..<hyp.count where l != j {
+                        guard abs(Foundation.log(hrho[j] / hrho[l]) - q) < 0.45 else { continue }
+                        let dcu = hu[l] - hu[j], dcv = hv[l] - hv[j]
+                        let dc = hypot(dcu, dcv)
+                        guard dc > 1e-6, abs(Foundation.log(dc / hrho[j]) - tt) < 0.4 else { continue }
+                        for mirror in [false, true] {
+                            let m: Double = mirror ? -1 : 1
+                            let R = dab / dc
+                            let th = atan2(vay, vax) - atan2(dcv, m * dcu)
+                            // Sonnenstand muss zur gemessenen Schattenrichtung passen (Vorzeichen offen)
+                            let pred = -(th + atan2(htv[j], m * htu[j]))
+                            guard min(angDiff(pred, -alpha), angDiff(pred, -alpha + .pi)) < deg2rad(35) else { continue }
+                            let mu = m * hu[j]
+                            let dx = cos(th) * mu - sin(th) * hv[j], dy = sin(th) * mu + cos(th) * hv[j]
+                            let ps = pose(theta: th, mirror: mirror, R: R, cx: a.x - R * dx, cy: a.y + R * dy)
+                            let (sc, _) = score(ps, dets: dets, grid: grid, catVec: catVec, catD: catD, width: width, height: height,
+                                                quickLimit: 14, quickNeed: 4)
+                            if let bb = best {
+                                let far = hypot(ps.cx - bb.1.cx, ps.cy - bb.1.cy) > 0.05 * bb.1.radius || abs(Foundation.log(ps.radius / bb.1.radius)) > 0.2
+                                if sc > bb.0 { if far { runnerUp = max(runnerUp, bb.0) }; best = (sc, ps) }
+                                else if far { runnerUp = max(runnerUp, sc) }
+                            } else { best = (sc, ps) }
+                        }
+                    }
+                }
+            }
+        }
+        guard var b = best else { return nil }
+        // Verfeinerung: Ähnlichkeitstransformation (Drehung, Maßstab, Lage) aus allen Zuordnungen
+        for _ in 0..<4 {
+            let (_, pairs) = score(b.1, dets: dets, grid: grid, catVec: catVec, catD: catD, width: width, height: height)
+            guard pairs.count >= 3 else { break }
+            let m: Double = b.1.mirrored ? -1 : 1
+            var src: [(Double, Double)] = [], dst: [(Double, Double)] = []
+            for (i, j) in pairs {
+                let p = catVec[j]
+                src.append((m * p.dot(x0), p.dot(y0))); dst.append((dets[i].x, -dets[i].y))
+            }
+            // komplexe Ähnlichkeit dst = A·src + B
+            let n = Double(src.count)
+            let sm = (src.map { $0.0 }.reduce(0, +) / n, src.map { $0.1 }.reduce(0, +) / n)
+            let dm = (dst.map { $0.0 }.reduce(0, +) / n, dst.map { $0.1 }.reduce(0, +) / n)
+            var nr = 0.0, ni = 0.0, dd = 0.0
+            for k in 0..<src.count {
+                let zx = src[k].0 - sm.0, zy = src[k].1 - sm.1, wx = dst[k].0 - dm.0, wy = dst[k].1 - dm.1
+                nr += zx * wx + zy * wy; ni += zx * wy - zy * wx; dd += zx * zx + zy * zy
+            }
+            guard dd > 0 else { break }
+            let ar = nr / dd, ai = ni / dd
+            let R = hypot(ar, ai), th = atan2(ai, ar)
+            let bx = dm.0 - (ar * sm.0 - ai * sm.1), by = dm.1 - (ar * sm.1 + ai * sm.0)
+            let np = pose(theta: th, mirror: b.1.mirrored, R: R, cx: bx, cy: -by)
+            let (s2, _) = score(np, dets: dets, grid: grid, catVec: catVec, catD: catD, width: width, height: height)
+            if s2 >= b.0 { b = (s2, np) } else { break }
+        }
+        let (finalScore, pairs) = score(b.1, dets: dets, grid: grid, catVec: catVec, catD: catD, width: width, height: height)
+        b.1.matches = pairs.count
+        if ProcessInfo.processInfo.environment["SR_DEBUG"] != nil {
+            let c0 = b.1.cameraVector(Vec3(1, 0, 0))
+            print("DEBUG noLimb: R=\(b.1.radius) cx=\(b.1.cx) cy=\(b.1.cy) mirror=\(b.1.mirrored) north=\(b.1.northAngle) score=\(finalScore)")
+            print("DEBUG pairs:", pairs.map { cat[$0.1].name }.joined(separator: ", "))
+            _ = c0
+        }
+        log(String(format: "Kraterabgleich ohne Mondrand: %d Krater zugeordnet (nächstbeste andere Lage: %.0f)", pairs.count, runnerUp))
+        let need = max(7.0, 0.25 * Double(min(dets.count, 40)))
+        guard Double(pairs.count) >= need, finalScore >= runnerUp * 1.35 + 1 else { return nil }
+        return b.1
     }
 
     /// Wiederverwendbarer Rasterpuffer für die schnelle Bewertung

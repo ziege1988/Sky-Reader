@@ -658,6 +658,22 @@ def discover_robbins():
                 found.append(full)
             elif depth < 3 and full.startswith(("http://", "https://")) and full not in seen:
                 frontier.append((full, depth + 1))
+    # USGS-STAC-Katalog (maschinenlesbar) nach Sammlungen mit „crater“ durchsuchen
+    for api in ("https://stac.astrogeology.usgs.gov/api/collections", "https://stac.astrogeology.usgs.gov/api/search?q=robbins"):
+        page = fetch(api, None, None, None, timeout=60, retries=1)
+        if not page:
+            continue
+        try:
+            j = json.loads(page)
+            cols = j.get("collections") or j.get("features") or []
+            for c in cols:
+                cid = c.get("id", "")
+                if "crater" in cid.lower() or "robbins" in json.dumps(c).lower():
+                    hrefs = [l.get("href") for l in c.get("links", [])] + [a.get("href") for a in (c.get("assets") or {}).values()]
+                    log(f"  STAC: {cid}: {[h for h in hrefs if h][:12]}")
+                    found += [h for h in hrefs if h and re.search(r"\.(csv|zip|gz)$", h.lower())]
+        except Exception as ex:  # noqa
+            log(f"  STAC-Fehler: {ex}")
     log(f"  Robbins-Suche: {len(seen)} Seiten besucht, Kandidaten: {found[:30]}")
     return found
 
