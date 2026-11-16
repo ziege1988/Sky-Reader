@@ -80,6 +80,58 @@ public enum MoonAnalyzer {
         return MoonDetection(threshold: thr, brightFraction: frac, moonLevel: Float(mb), mask: mask)
     }
 
+    /// Kennzahlen „Mond-Ähnlichkeit“ für Bilder ohne (oder mit wenig) schwarzem Himmel
+    public struct MoonLikeness: Sendable {
+        public var pointsPerMPx: Double, structure: Double, brightFraction: Double
+        public var isMoon: Bool { pointsPerMPx < 600 && brightFraction > 0.35 && structure > 0.15 }
+        public var plausibleMoon: Bool { pointsPerMPx < 900 && brightFraction > 0.3 && structure > 0.12 }
+    }
+
+    public static func moonLikeness(_ input: GrayImage) -> MoonLikeness {
+        let img = input.downsampled(by: max(1, max(input.width, input.height) / 1300))
+        let w = img.width, h = img.height
+        var sample = stride(from: 0, to: img.pixels.count, by: 5).map { img.pixels[$0] }
+        sample.sort()
+        let white = max(sample[Int(Double(sample.count - 1) * 0.998)], 1e-3)
+        var x = img
+        for k in 0..<x.pixels.count { x.pixels[k] /= white }
+        let s = x.boxBlurred(radius: 1).boxBlurred(radius: 1)
+        let bg = s.boxBlurred(radius: 5)
+        var points = 0
+        for yy in 4..<(h - 4) { for xx in 4..<(w - 4) {
+            let v = s[xx, yy] - bg[xx, yy]
+            guard v > 0.12 else { continue }
+            var isMax = true
+            outer: for dy in -3...3 { for dx in -3...3 where dx != 0 || dy != 0 {
+                if s[xx + dx, yy + dy] - bg[xx + dx, yy + dy] > v { isMax = false; break outer }
+            } }
+            if isMax { points += 1 }
+        } }
+        let g = gauss(x, sigma: 4)
+        var strong = 0, tot = 0, bright = 0
+        for yy in stride(from: 1, to: h - 1, by: 2) { for xx in stride(from: 1, to: w - 1, by: 2) {
+            let gx = Double(g[xx + 1, yy] - g[xx - 1, yy]) / 2, gy = Double(g[xx, yy + 1] - g[xx, yy - 1]) / 2
+            if hypot(gx, gy) > 0.006 { strong += 1 }
+            if x[xx, yy] > 0.25 { bright += 1 }
+            tot += 1
+        } }
+        return MoonLikeness(pointsPerMPx: Double(points) / Double(w * h) * 1e6, structure: Double(strong) / Double(max(tot, 1)),
+                            brightFraction: Double(bright) / Double(max(tot, 1)))
+    }
+
+    /// Mond-Erkennung für Bilder, die (fast) vollständig von der Mondoberfläche ausgefüllt sind
+    public static func moonFillingFrame(_ img: GrayImage) -> MoonDetection {
+        var sample = stride(from: 0, to: img.pixels.count, by: 7).map { img.pixels[$0] }
+        sample.sort()
+        let white = max(sample[Int(Double(sample.count - 1) * 0.998)], 1e-3)
+        let thr = otsu(img.pixels.map { $0 / white }) * white * 0.5
+        var sum = 0.0, n = 0.0
+        for v in sample where v > thr { sum += Double(v); n += 1 }
+        let blurred = img.boxBlurred(radius: max(4, min(img.width, img.height) / 60))
+        let mask = blurred.pixels.map { $0 > thr * 0.5 }
+        return MoonDetection(threshold: thr, brightFraction: n / Double(sample.count), moonLevel: Float(sum / max(n, 1)), mask: mask)
+    }
+
     static func largestComponent(_ m: [Bool], _ w: Int, _ h: Int) -> Int {
         var seen = [Bool](repeating: false, count: m.count)
         var best = 0

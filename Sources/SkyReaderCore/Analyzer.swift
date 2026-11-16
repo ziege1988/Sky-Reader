@@ -100,7 +100,13 @@ public final class SkyAnalyzer: @unchecked Sendable {
         try check()
 
         step("Szene wird klassifiziert", 0.06)
-        let moon = MoonAnalyzer.detectMoon(img)
+        var moon = MoonAnalyzer.detectMoon(img)
+        let likeness = MoonAnalyzer.moonLikeness(img)
+        if ProcessInfo.processInfo.environment["SR_DEBUG"] != nil { print("likeness", likeness) }
+        if moon == nil && likeness.isMoon {
+            info(String(format: "Bild ist (fast) vollständig von Mondoberfläche ausgefüllt (Struktur %.2f, %.0f Punktquellen/MPx).", likeness.structure, likeness.pointsPerMPx))
+            moon = MoonAnalyzer.moonFillingFrame(img)
+        }
         if let m = moon {
             ok(String(format: "Mondoberfläche erkannt (%.0f %% der Bildfläche hell).", m.brightFraction * 100))
             return try MoonAnalyzer.analyze(img: img, full: full, factor: factor, detection: m, settings: settings,
@@ -139,6 +145,11 @@ public final class SkyAnalyzer: @unchecked Sendable {
                 return AnalysisResult(kind: .comet, imageWidth: full.width, imageHeight: full.height, objects: [obj],
                                       summary: ObjectInfo(title: "Kometenaufnahme", subtitle: "Sternfeld nicht bestimmt"),
                                       wcs: nil, warnings: ["Plate Solving fehlgeschlagen"])
+            }
+            if likeness.plausibleMoon {
+                warn("Kein Sternfeld gefunden – das Bild wird als Mondaufnahme analysiert.")
+                return try MoonAnalyzer.analyze(img: img, full: full, factor: factor, detection: MoonAnalyzer.moonFillingFrame(img), settings: settings,
+                                                step: step, info: info, warn: warn, ok: ok, check: check)
             }
             throw AnalysisError("Das Sternfeld konnte nicht bestimmt werden. Mögliche Ursachen: zu wenige oder strichförmige Sterne, sehr kleines Bildfeld (< ca. 0,7°) oder ein stark bearbeitetes Bild. Bitte den Fehlerbericht über „Report“ speichern.")
         }

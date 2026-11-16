@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.3.1
+- Mondbilder, die (fast) vollständig von der Mondoberfläche ausgefüllt sind, werden zuverlässig als Mond erkannt (vorher teilweise als Himmelsaufnahme behandelt)
+- Scheitert bei einer vermeintlichen Himmelsaufnahme das Plate Solving und ähnelt das Bild einer Mondaufnahme, wird automatisch die Mondanalyse verwendet
+
 ## 1.3.0
 - Mond: Krater werden mit ihren **offiziellen IAU-Namen** beschriftet. Sky Reader bestimmt dazu die Lage des Mondes (Drehung, Spiegelung, Libration) durch Abgleich der erkannten Krater mit dem IAU-Kraterkatalog – wie Plate Solving, nur für den Mond.
 - Es werden alle benannten Krater im Bildausschnitt markiert, auch solche, die die Erkennung übersehen hat; Krater auf der Nachtseite werden ausgelassen
