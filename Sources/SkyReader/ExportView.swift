@@ -44,7 +44,7 @@ struct ExportView: View {
         .background(Theme.background)
         .onAppear {
             options.labelScale = state.labelScale
-            if !ExportView.initialHidden.isEmpty { hidden = ExportView.initialHidden; notice = "„\(state.result?.objects.first(where: { ExportView.initialHidden.contains($0.id) })?.label ?? "")“ entfernt – Markierung und Beschreibung sind nicht mehr im Export." }
+            if !ExportView.initialHidden.isEmpty { hidden = ExportView.initialHidden; notice = "„\(state.result?.objects.first(where: { ExportView.initialHidden.contains($0.id) })?.info.title ?? "")“ entfernt – Markierung und Beschreibung sind nicht mehr im Export." }
             renderPreview()
         }
         .onChange(of: options) { _, _ in renderPreview() }
@@ -239,8 +239,8 @@ struct ExportView: View {
         record()
         if hide { hidden.insert(o.id) } else { hidden.remove(o.id) }
         withAnimation(.easeOut(duration: 0.2)) {
-            notice = hide ? "„\(o.label)“ entfernt – Markierung und Beschreibung sind nicht mehr im Export."
-                          : "„\(o.label)“ wieder im Export – Markierung und Beschreibung."
+            notice = hide ? "„\(o.info.title)“ entfernt – Markierung und Beschreibung sind nicht mehr im Export."
+                          : "„\(o.info.title)“ wieder im Export – Markierung und Beschreibung."
         }
     }
 
