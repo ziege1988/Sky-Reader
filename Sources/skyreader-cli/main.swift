@@ -19,6 +19,15 @@ while i < args.count {
     i += 1
 }
 let img = try GrayImage.loadPGM(URL(fileURLWithPath: path))
+if let k = args.firstIndex(of: "--rings"), args.count > k + 1 {
+    // Nur Ringwall-Detektor (Entwicklung)
+    let t = Date()
+    let rings = RingDetector.detect(img, maxCount: 120)
+    print("Ringe: \(rings.count) in \(String(format: "%.1f", Date().timeIntervalSince(t))) s")
+    let objs = rings.map { ["x": $0.x, "y": $0.y, "radius": $0.r, "strength": $0.strength] }
+    try JSONSerialization.data(withJSONObject: ["objects": objs, "imageWidth": img.width]).write(to: URL(fileURLWithPath: args[k + 1]))
+    exit(0)
+}
 meta.fileName = URL(fileURLWithPath: path).lastPathComponent
 meta.originalWidth = img.width; meta.originalHeight = img.height
 let t0 = Date()
