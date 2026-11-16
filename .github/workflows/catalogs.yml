@@ -34,7 +34,9 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           mkdir -p quellen
-          gh release download katalog-quellen -D quellen -R "${GITHUB_REPOSITORY}" || echo "Keine bereitgestellten Quelldateien"
+          # Tag-Name ohne Rücksicht auf Groß-/Kleinschreibung („katalog-quellen“, „Katalog-Quellen“ …)
+          TAG=$(gh release list -R "${GITHUB_REPOSITORY}" --limit 100 --json tagName --jq '.[].tagName' | grep -i '^katalog-quellen$' | head -1 || true)
+          if [ -n "$TAG" ]; then gh release download "$TAG" -D quellen -R "${GITHUB_REPOSITORY}"; else echo "Keine bereitgestellten Quelldateien"; fi
           ls -la quellen
       - name: Kataloge erzeugen
         run: python3 Tools/build_catalogs.py --out Resources/Catalogs --cache .catalog-cache --source-dir quellen
