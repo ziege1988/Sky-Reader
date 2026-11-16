@@ -10,6 +10,7 @@ public struct MoonDetection: Sendable {
 public struct LimbCircle: Sendable {
     public var cx: Double, cy: Double, r: Double
     public var inliers: Int
+    public init(cx: Double, cy: Double, r: Double, inliers: Int) { self.cx = cx; self.cy = cy; self.r = r; self.inliers = inliers }
 }
 
 public struct DetectedCrater: Sendable {
@@ -19,6 +20,10 @@ public struct DetectedCrater: Sendable {
     /// Kleine Halbachse und Lage der großen Achse (randnahe Krater erscheinen als Ellipsen)
     public var minorRadius: Double = 0
     public var angleDeg: Double = 0
+    public init(x: Double, y: Double, r: Double, strength: Double, shadowFraction: Double, minorRadius: Double = 0, angleDeg: Double = 0) {
+        self.x = x; self.y = y; self.r = r; self.strength = strength; self.shadowFraction = shadowFraction
+        self.minorRadius = minorRadius; self.angleDeg = angleDeg
+    }
 }
 
 public enum MoonAnalyzer {
@@ -108,7 +113,7 @@ public enum MoonAnalyzer {
         var litSum: Float = 0, litN: Float = 0
         for v in sample where v > det.threshold { litSum += v; litN += 1 }
         let lit = litN > 0 ? litSum / litN : det.threshold * 2
-        let mThr = sky + 0.25 * (lit - sky), skyThr = sky + 0.1 * (lit - sky)
+        let mThr = sky + 0.25 * (lit - sky), skyThr = sky + 0.22 * (lit - sky)   // Streulicht am Rand zulassen
         var pts: [(Double, Double)] = []
         for y in stride(from: 6, to: h - 6, by: 2) {
             for x in stride(from: 6, to: w - 6, by: 2) {
@@ -121,10 +126,12 @@ public enum MoonAnalyzer {
                 let gl = hypot(gx, gy)
                 guard gl > 1e-6 else { continue }
                 let ux = gx / gl, uy = gy / gl   // zeigt zur helleren Seite (Mond)
-                let inside = sm.sample(Double(x) + ux * 4, Double(y) + uy * 4)
-                let outside = sm.sample(Double(x) - ux * 4, Double(y) - uy * 4)
-                // scharfer Übergang zu echtem Himmel (Terminator ist weich und hat keinen schwarzen Himmel dahinter)
-                if inside - outside > 0.45 * (lit - sky) && outside < skyThr { pts.append((Double(x), Double(y))) }
+                // Übergang zu echtem Himmel (Terminator: weich und ohne schwarzen Himmel dahinter);
+                // Abstand mit der Bildgröße skaliert, damit auch weiche Ränder (Seeing, Defokus) erkannt werden
+                let off = max(4.0, Double(min(w, h)) / 130)
+                let inside = sm.sample(Double(x) + ux * off, Double(y) + uy * off)
+                let outside = sm.sample(Double(x) - ux * off, Double(y) - uy * off)
+                if inside - outside > 0.35 * (lit - sky) && outside < skyThr { pts.append((Double(x), Double(y))) }
             }
         }
         guard pts.count >= 30 else { return nil }
@@ -142,7 +149,17 @@ public enum MoonAnalyzer {
             if best == nil || n > best!.inliers { best = LimbCircle(cx: circ.cx, cy: circ.cy, r: circ.r, inliers: n) }
         }
         if ProcessInfo.processInfo.environment["SR_DEBUG"] != nil { print("limb pts \(pts.count) best \(String(describing: best))") }
-        guard var b = best, b.inliers >= max(30, pts.count / 4) else { return nil }
+        guard var b = best, b.inliers >= max(30, pts.count / 10) else { return nil }
+        // Die Randpunkte müssen einen langen Bogen bilden (Terminator-Punkte liegen nicht auf einem Kreis)
+        do {
+            let inl = pts.filter { abs(hypot($0.0 - b.cx, $0.1 - b.cy) - b.r) < tol }
+            var span = 0.0
+            if let f = inl.first {
+                let far = inl.max { hypot($0.0 - f.0, $0.1 - f.1) < hypot($1.0 - f.0, $1.1 - f.1) }!
+                span = inl.map { hypot($0.0 - far.0, $0.1 - far.1) }.max() ?? 0
+            }
+            if span < 0.3 * Double(max(w, h)) { return nil }
+        }
         // Verfeinern (algebraischer Fit auf Inliern)
         let inl = pts.filter { abs(hypot($0.0 - b.cx, $0.1 - b.cy) - b.r) < tol }
         if let r = kasaFit(inl) { b = LimbCircle(cx: r.cx, cy: r.cy, r: r.r, inliers: inl.count) }
@@ -488,43 +505,93 @@ public enum MoonAnalyzer {
         if let l = limb { craters = craters.filter { hypot($0.x - l.cx, $0.y - l.cy) < l.r - $0.minorRadius * 0.5 } }
         info("\(craters.count) Krater erkannt (\(settings.craterMode.germanName)).")
         try check()
+        // Kraternamen: Lage des Mondes über den Abgleich mit dem IAU-Kraterkatalog bestimmen
+        var pose: MoonPose?
+        if let l = limb {
+            step("Krater werden mit dem IAU-Katalog abgeglichen", 0.6)
+            let regScan = scanCraters(img, maxCount: 40)
+            pose = MoonRegistration.register(craters: regScan.craters, limb: l, width: img.width, height: img.height,
+                                             log: info, isCancelled: { false })
+            try check()
+            if let p = pose {
+                kmPerPx = p.kmPerPixel / f
+                let se = p.subEarth
+                ok(String(format: "Mondlage bestimmt: Libration %.1f° Breite, %.1f° Länge, Nord bei %.0f° im Bild%@",
+                          se.lat, se.lon, p.northAngle, p.mirrored ? ", gespiegelt" : "").replacingOccurrences(of: ".", with: ","))
+            } else {
+                warn("Die Krater konnten dem Katalog nicht eindeutig zugeordnet werden – sie werden nummeriert.")
+            }
+        } else {
+            warn("Ohne sichtbaren Mondrand ist keine Zuordnung zu offiziellen Kraternamen möglich – Krater werden nummeriert.")
+        }
         step("Kraterdetails werden berechnet", 0.8)
         var objs: [FoundObject] = []
-        for (i, c) in craters.enumerated() {
-            let n = i + 1
-            var facts: [InfoFact] = [InfoFact("Nummer", "\(n)")]
-            var diaKm: Double?
-            if let k = kmPerPx {
-                let d = 2 * c.r * f * k
-                diaKm = d
-                facts.append(InfoFact("Geschätzter Durchmesser", String(format: "ca. %.0f km", d)))
+        let minDim = Double(min(img.width, img.height))
+        if let p = pose {
+            // Alle benannten Krater im Bildausschnitt
+            var named: [(NamedCrater, Double, Double, Double, Double)] = []   // crater, x, y, r(px), z
+            for c in MoonRegistration.catalog() {
+                guard let q = p.project(lat: c.lat, lon: c.lon), q.z > 0.08 else { continue }
+                let r = c.d / 2 / p.kmPerPixel
+                guard q.x > 4, q.y > 4, q.x < Double(img.width) - 4, q.y < Double(img.height) - 4 else { continue }
+                guard r >= max(5, minDim / 160) else { continue }
+                // Nur beleuchtete Krater (nicht auf der Nachtseite jenseits des Terminators)
+                var lit = 0, tot = 0
+                let rr = max(3.0, r * 0.9)
+                for k in 0..<16 {
+                    let a = Double(k) / 16 * 2 * .pi
+                    for f2 in [0.3, 0.7, 1.0] {
+                        let sx = Int(q.x + cos(a) * rr * f2), sy = Int(q.y + sin(a) * rr * f2)
+                        guard sx >= 0, sy >= 0, sx < img.width, sy < img.height else { continue }
+                        tot += 1
+                        if img[sx, sy] > detection.threshold * 0.4 { lit += 1 }
+                    }
+                }
+                guard tot > 0, Double(lit) / Double(tot) >= 0.3 else { continue }
+                named.append((c, q.x, q.y, r, q.z))
             }
-            facts.append(InfoFact("Durchmesser im Bild", String(format: "%.0f Pixel", 2 * c.r * f)))
-            if let l = limb {
-                let rho = min(0.999, hypot(c.x - l.cx, c.y - l.cy) / l.r)
-                let ang = rad2deg(asin(rho))
-                facts.append(InfoFact("Winkelabstand zur Scheibenmitte", String(format: "ca. %.0f°", ang)))
-                if ang > 60 { facts.append(InfoFact("Perspektive", "randnah – stark verkürzt (oval)")) }
+            named.sort { $0.0.d > $1.0.d }
+            let limit = settings.craterMode == .largest ? 25 : 150
+            for (c, x, y, r, z) in named.prefix(limit) {
+                let cls = craterClass(c.d)
+                var facts: [InfoFact] = [
+                    InfoFact("Offizieller Name", c.name),
+                    InfoFact("Kratertyp", cls.name),
+                    InfoFact("Durchmesser", String(format: "%.0f km", c.d)),
+                    InfoFact("Selenografische Lage", String(format: "%.1f° %@, %.1f° %@", abs(c.lat), c.lat >= 0 ? "N" : "S", abs(c.lon), c.lon >= 0 ? "O" : "W").replacingOccurrences(of: ".", with: ",")),
+                ]
+                if let o = MoonRegistration.germanOrigin(c.origin) { facts.append(InfoFact("Namensgeber", o)) }
+                let view = rad2deg(acos(min(1, z)))
+                if view > 45 { facts.append(InfoFact("Perspektive", String(format: "schräg gesehen (ca. %.0f° Blickwinkel)", view))) }
+                facts.append(InfoFact("Quelle", "IAU / USGS Gazetteer of Planetary Nomenclature"))
+                let inf = ObjectInfo(title: c.name, subtitle: cls.name, facts: facts,
+                                     scientific: cls.scientific, latest: cls.latest, layman: cls.layman)
+                objs.append(FoundObject(id: "crater-\(c.name)", label: c.name, type: .moonCrater, x: x * f, y: y * f,
+                                        radius: r * f, number: nil, drawCircle: false, info: inf, confidence: 0.9, ra: nil, dec: nil))
             }
-            if c.minorRadius > 0 && c.r > 0 {
-                let ratio = min(1, c.minorRadius / c.r)
-                facts.append(InfoFact("Form im Bild", String(format: "Ellipse, Achsenverhältnis %.2f", ratio).replacingOccurrences(of: ".", with: ",")))
-                if ratio < 0.9 { facts.append(InfoFact("Perspektive", String(format: "schräg gesehen (ca. %.0f° Blickwinkel) – Durchmesser entlang der langen Achse gemessen", rad2deg(acos(ratio))))) }
+            // Erkannte Krater ohne Eigennamen (nur bei „Alle“): nummeriert
+            if settings.craterMode == .all {
+                var n = 0
+                for c in craters where !named.contains(where: { hypot($0.1 - c.x, $0.2 - c.y) < max($0.3, c.r) * 0.7 }) {
+                    n += 1
+                    objs.append(numberedCrater(c, n: n, f: f, kmPerPx: kmPerPx, limb: limb))
+                }
             }
-            let cls = craterClass(diaKm)
-            facts.insert(InfoFact("Kratertyp", cls.name), at: 1)
-            let inf = ObjectInfo(title: "Krater \(n)", subtitle: cls.name, facts: facts,
-                                 scientific: cls.scientific, latest: cls.latest, layman: cls.layman)
-            objs.append(FoundObject(id: "crater-\(n)", label: "\(n)", type: .moonCrater, x: c.x * f, y: c.y * f,
-                                    radius: c.r * f, number: n, drawCircle: false, info: inf,
-                                    confidence: min(1, c.strength * 5), ra: nil, dec: nil))
+        } else {
+            for (i, c) in craters.enumerated() { objs.append(numberedCrater(c, n: i + 1, f: f, kmPerPx: kmPerPx, limb: limb)) }
         }
         var facts = [
             InfoFact("Mittlere Entfernung", "384.400 km (1,28 Lichtsekunden)"),
             InfoFact("Durchmesser", "3.474 km"),
             InfoFact("Alter", "ca. 4,5 Mrd. Jahre"),
-            InfoFact("Erkannte Krater", "\(objs.count)"),
+            InfoFact(pose != nil ? "Markierte Krater" : "Erkannte Krater", "\(objs.count)"),
         ]
+        if let p = pose {
+            let se = p.subEarth
+            facts.append(InfoFact("Kraternamen", "\(p.matches) erkannte Krater dem IAU-Katalog zugeordnet"))
+            facts.append(InfoFact("Libration", String(format: "%.1f° Breite, %.1f° Länge", se.lat, se.lon).replacingOccurrences(of: ".", with: ",")))
+            facts.append(InfoFact("Mond-Nord im Bild", String(format: "%.0f° (von oben im Uhrzeigersinn)%@", p.northAngle, p.mirrored ? ", gespiegelt" : "")))
+        }
         if let k = kmPerPx {
             facts.append(InfoFact("Bildmaßstab", String(format: "%.2f km pro Pixel", k).replacingOccurrences(of: ".", with: ",")))
             facts.append(InfoFact("Bildbreite", String(format: "ca. %.0f km", k * Double(full.width))))
@@ -532,12 +599,38 @@ public enum MoonAnalyzer {
         let summary = ObjectInfo(
             title: "Mond", subtitle: "Erdtrabant",
             facts: facts,
-            scientific: "Der Mond entstand nach heutigem Verständnis vor rund 4,5 Mrd. Jahren aus den Trümmern einer Kollision der jungen Erde mit einem etwa marsgroßen Körper (Theia). Seine Krater sind Einschlagsspuren aus über vier Milliarden Jahren; die dunklen Maria sind erstarrte Basaltlava, die vor 3–3,8 Mrd. Jahren große Einschlagsbecken flutete. Die Krater sind hier nach Größe nummeriert (1 = größter). Eine Benennung nach IAU-Namen erfolgt offline nicht.",
+            scientific: "Der Mond entstand nach heutigem Verständnis vor rund 4,5 Mrd. Jahren aus den Trümmern einer Kollision der jungen Erde mit einem etwa marsgroßen Körper (Theia). Seine Krater sind Einschlagsspuren aus über vier Milliarden Jahren; die dunklen Maria sind erstarrte Basaltlava, die vor 3–3,8 Mrd. Jahren große Einschlagsbecken flutete. Ist der Mondrand im Bild, bestimmt Sky Reader die Lage des Mondes durch Abgleich der erkannten Krater mit dem IAU-Katalog und beschriftet die Krater mit ihren offiziellen Namen; sonst werden sie nach Größe nummeriert.",
             latest: "Chandrayaan-3 (2023) landete als erste Sonde nahe dem Südpol, Chang'e 6 brachte 2024 erstmals Gestein von der Rückseite zur Erde. Das Artemis-Programm der NASA plant die Rückkehr von Menschen in die Südpolregion, wo in dauerhaft beschatteten Kratern Wassereis vermutet wird.",
             layman: "Jeder Krater ist die Narbe eines Einschlags: Gesteinsbrocken aus dem All prallten mit vielfacher Gewehrkugelgeschwindigkeit auf den Mond. Weil der Mond keine Luft und kein Wetter hat, bleiben diese Spuren Milliarden Jahre erhalten. Besonders plastisch wirken Krater nahe der Licht-Schatten-Grenze, wo die Sonne flach einfällt.")
         ok("Analyse abgeschlossen – \(objs.count) Krater.")
         return AnalysisResult(kind: .moon, imageWidth: full.width, imageHeight: full.height, objects: objs, summary: summary,
                               wcs: nil, warnings: limb == nil ? ["Mondrand nicht im Bild"] : [])
+    }
+
+    static func numberedCrater(_ c: DetectedCrater, n: Int, f: Double, kmPerPx: Double?, limb: LimbCircle?) -> FoundObject {
+        var facts: [InfoFact] = [InfoFact("Nummer", "\(n)")]
+        var diaKm: Double?
+        if let k = kmPerPx {
+            let d = 2 * c.r * f * k
+            diaKm = d
+            facts.append(InfoFact("Geschätzter Durchmesser", String(format: "ca. %.0f km", d)))
+        }
+        facts.append(InfoFact("Durchmesser im Bild", String(format: "%.0f Pixel", 2 * c.r * f)))
+        if let l = limb {
+            let rho = min(0.999, hypot(c.x - l.cx, c.y - l.cy) / l.r)
+            facts.append(InfoFact("Winkelabstand zur Scheibenmitte", String(format: "ca. %.0f°", rad2deg(asin(rho)))))
+        }
+        if c.minorRadius > 0 && c.r > 0 {
+            let ratio = min(1, c.minorRadius / c.r)
+            facts.append(InfoFact("Form im Bild", String(format: "Ellipse, Achsenverhältnis %.2f", ratio).replacingOccurrences(of: ".", with: ",")))
+        }
+        let cls = craterClass(diaKm)
+        facts.insert(InfoFact("Kratertyp", cls.name), at: 1)
+        facts.append(InfoFact("Name", "kein Eigenname zugeordnet"))
+        return FoundObject(id: "crater-\(n)", label: "\(n)", type: .moonCrater, x: c.x * f, y: c.y * f, radius: c.r * f,
+                           number: n, drawCircle: false,
+                           info: ObjectInfo(title: "Krater \(n)", subtitle: cls.name, facts: facts, scientific: cls.scientific, latest: cls.latest, layman: cls.layman),
+                           confidence: min(1, c.strength * 5), ra: nil, dec: nil)
     }
 
     static func craterClass(_ d: Double?) -> (name: String, scientific: String, latest: String, layman: String) {

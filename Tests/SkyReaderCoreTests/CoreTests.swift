@@ -46,4 +46,41 @@ final class CoreTests: XCTestCase {
         let p = w.skyToPixel(sky[7].0, sky[7].1)!
         XCTAssertEqual(p.x, px[7].0, accuracy: 0.05); XCTAssertEqual(p.y, px[7].1, accuracy: 0.05)
     }
+
+    func testMoonRegistrationSynthetic() throws {
+        ResourceLocator.overrideDirectory = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
+            .appendingPathComponent("../../Resources/Catalogs").standardizedFileURL
+        let cat = MoonRegistration.catalog()
+        try XCTSkipIf(cat.isEmpty, "Kraterkatalog nicht gefunden")
+        // Bekannte Lage: Libration −4°/+6°, Bild um 40° gedreht, Rand unten links wie in den Testbildern
+        let lat0 = deg2rad(-4.0), lon0 = deg2rad(6.0), th = deg2rad(40.0)
+        let w = 1600, h = 1100, cx = 1800.0, cy = -1600.0, R = 2700.0
+        var rng = SystemRandomNumberGenerator()
+        var dets: [DetectedCrater] = []
+        var truth = 0
+        for c in cat where c.d >= 15 {
+            let la = deg2rad(c.lat), lo = deg2rad(c.lon)
+            let cosc = sin(lat0) * sin(la) + cos(lat0) * cos(la) * cos(lo - lon0)
+            guard cosc > 0.15 else { continue }
+            let X = cos(la) * sin(lo - lon0), Y = cos(lat0) * sin(la) - sin(lat0) * cos(la) * cos(lo - lon0)
+            let dx = X * cos(th) - Y * sin(th), dy = X * sin(th) + Y * cos(th)
+            let px = cx + R * dx + Double.random(in: -4...4, using: &rng), py = cy - R * dy + Double.random(in: -4...4, using: &rng)
+            guard px > 0, py > 0, px < Double(w), py < Double(h) else { continue }
+            dets.append(DetectedCrater(x: px, y: py, r: c.d / 2 / 1737.4 * R * Double.random(in: 0.7...1.05, using: &rng), strength: 1, shadowFraction: 0))
+            truth += 1
+        }
+        for _ in 0..<(truth * 3 / 10) {
+            dets.append(DetectedCrater(x: Double.random(in: 0..<Double(w), using: &rng), y: Double.random(in: 0..<Double(h), using: &rng),
+                                       r: Double.random(in: 10...60, using: &rng), strength: 1, shadowFraction: 0))
+        }
+        XCTAssertGreaterThan(truth, 15)
+        let pose = MoonRegistration.register(craters: dets, limb: LimbCircle(cx: cx, cy: cy, r: R, inliers: 100), width: w, height: h)
+        XCTAssertNotNil(pose)
+        if let p = pose {
+            XCTAssertEqual(p.subEarth.lat, -4, accuracy: 1.0)
+            XCTAssertEqual(p.subEarth.lon, 6, accuracy: 1.0)
+            XCTAssertFalse(p.mirrored)
+            XCTAssertGreaterThan(p.matches, truth / 2)
+        }
+    }
 }

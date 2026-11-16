@@ -38,8 +38,8 @@ enum OverlayLayout {
         for o in order {
             let c = transform(CGPoint(x: o.x, y: o.y))
             let r = max(CGFloat(o.radius) * scale, o.drawCircle ? 6 : 0)
-            let isNum = o.number != nil && !o.drawCircle
-            let f = font(size: fontSize, number: isNum)
+            let isNum = o.type == .moonCrater && !o.drawCircle
+            let f = font(size: fontSize, number: isNum && o.number != nil)
             let ts = textSize(o.label, font: f)
             let pad: CGFloat = isNum ? 3 : 4
             let size = CGSize(width: ts.width + 2 * pad, height: ts.height + (isNum ? 0 : 2))
@@ -141,7 +141,7 @@ enum OverlayLayout {
                     }
                 }
             }
-            let isNum = it.object.number != nil && !it.object.drawCircle
+            let isNum = it.object.type == .moonCrater && !it.object.drawCircle
             if isNum {
                 // Kleines Fadenkreuz in der Kratermitte (keine Kreise um Krater)
                 let arm = crosshairArm(fontSize) * (sel ? 1.25 : 1), gap = arm * 0.35
@@ -159,7 +159,7 @@ enum OverlayLayout {
             }
             ctx.restoreGState()
             guard showLabels || !it.object.drawCircle else { continue }
-            let f = font(size: fontSize * (sel ? 1.12 : 1), number: isNum)
+            let f = font(size: fontSize * (sel ? 1.12 : 1), number: isNum && it.object.number != nil)
             let shadow = NSShadow()
             shadow.shadowColor = NSColor.black.withAlphaComponent(0.95)
             shadow.shadowBlurRadius = fontSize * 0.3

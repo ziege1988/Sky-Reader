@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.3.0
+- Mond: Krater werden mit ihren **offiziellen IAU-Namen** beschriftet. Sky Reader bestimmt dazu die Lage des Mondes (Drehung, Spiegelung, Libration) durch Abgleich der erkannten Krater mit dem IAU-Kraterkatalog – wie Plate Solving, nur für den Mond.
+- Es werden alle benannten Krater im Bildausschnitt markiert, auch solche, die die Erkennung übersehen hat; Krater auf der Nachtseite werden ausgelassen
+- Kraterdetails: offizieller Durchmesser, selenografische Lage, Namensgeber; Bildinfo mit Libration und Nordrichtung
+- „Nur die größten“ zeigt bis zu 25 benannte Krater, „Alle“ zusätzlich kleinere und nummerierte Krater ohne Eigennamen
+- Mondrand-Vermessung genauer und auch bei weichem Rand bzw. Streulicht zuverlässig
+- Ohne sichtbaren Mondrand oder ohne eindeutige Zuordnung werden Krater weiterhin nummeriert
+
 ## 1.2.0
 - Mond: Krater werden mit einem kleinen blauen Fadenkreuz in der Mitte und ihrer Nummer markiert (keine Kreise)
 - Export mit Live-Vorschau: großer Dialog, zoom- und verschiebbar; jede Änderung ist sofort im Bild und in der Beschreibung sichtbar

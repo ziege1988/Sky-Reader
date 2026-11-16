@@ -49,7 +49,7 @@ struct SettingsView: View {
             Picker("Krater", selection: $state.craterMode) {
                 ForEach(AnalysisSettings.CraterMode.allCases, id: \.self) { Text($0.germanName).tag($0) }
             }
-            Text("Bei Mondaufnahmen werden die Krater nummeriert. „Nur die größten“ zeigt bis zu 12 deutliche Krater, „Alle“ bis zu 120.")
+            Text("Ist der Mondrand im Bild, werden die Krater mit ihren offiziellen IAU-Namen beschriftet. „Nur die größten“ zeigt die bis zu 25 größten benannten Krater, „Alle“ zusätzlich kleinere sowie erkannte Krater ohne Eigennamen (nummeriert).")
                 .font(.caption).foregroundStyle(Theme.textSecondary)
         } header: { Text("Mond") }
 
