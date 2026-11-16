@@ -83,12 +83,12 @@ def fetch(url, cache, name, source_dir=None, timeout=120, retries=3):
     """Download with simple caching. Returns bytes or None. Nicht erreichbare Hosts werden danach übersprungen."""
     import urllib.parse
     host = urllib.parse.urlparse(url).netloc
-    if source_dir:
+    if source_dir and name:
         p = os.path.join(source_dir, name)
         if os.path.exists(p):
             with open(p, "rb") as f:
                 return f.read()
-    if cache:
+    if cache and name:
         os.makedirs(cache, exist_ok=True)
         p = os.path.join(cache, name)
         if os.path.exists(p) and os.path.getsize(p) > 0:
@@ -102,7 +102,7 @@ def fetch(url, cache, name, source_dir=None, timeout=120, retries=3):
             req = urllib.request.Request(url, headers={"User-Agent": UA})
             with urllib.request.urlopen(req, timeout=timeout) as r:
                 data = r.read()
-            if cache:
+            if cache and name:
                 with open(os.path.join(cache, name), "wb") as f:
                     f.write(data)
             return data
@@ -563,24 +563,42 @@ def parse_dbf(data):
     return rows
 
 
-def load_craters(cache, source_dir):
+ROBBINS_URLS = [
+    "https://pdsimage2.wr.usgs.gov/Individual_Investigations/moon_lro.kaguya_multi_craterdatabase_robbins_2018/data/lunar_crater_database_robbins_2018.csv",
+    "https://pdsimage2.wr.usgs.gov/Individual_Investigations/moon_lro.kaguya_multi_craterdatabase_robbins_2018/data/lunar_crater_database_robbins_2018_bundle/data/lunar_crater_database_robbins_2018.csv",
+    "https://astrogeology.usgs.gov/ckan/dataset/a2bd2e4c-4c35-4e6e-a6fc-bc1d3ff9f8c6/resource/2b7bdb41-3a0d-4d53-9c4e-bfc4dd4a5c3a/download/lunar_crater_database_robbins_2018.csv",
+]
+ROBBINS_INDEX = [
+    "https://pdsimage2.wr.usgs.gov/Individual_Investigations/moon_lro.kaguya_multi_craterdatabase_robbins_2018/",
+    "https://pdsimage2.wr.usgs.gov/Individual_Investigations/moon_lro.kaguya_multi_craterdatabase_robbins_2018/data/",
+]
+
+# Typen der IAU-Nomenklatur, die als Regionsbezeichnung dienen (Maria, Gebirge, …)
+REGION_TYPES = {"mare": "Mare", "oceanus": "Oceanus", "lacus": "Lacus", "sinus": "Sinus", "palus": "Palus",
+                "mons": "Mons", "montes": "Montes", "vallis": "Vallis", "promontorium": "Promontorium",
+                "rupes": "Rupes", "rima": "Rima", "catena": "Catena", "dorsum": "Dorsum"}
+
+
+def load_moon_nomenclature(cache, source_dir):
+    """IAU/USGS Gazetteer: Krater inkl. Nebenkrater ("Atlas A") und Regionsnamen (Maria, Montes, …)."""
     raw = fetch(CRATERS_SHP, cache, "MOON_nomenclature_center_pts.zip", source_dir, timeout=300)
     if raw is None:
-        return []
+        return [], []
     z = zipfile.ZipFile(io.BytesIO(raw))
     dbf = [n for n in z.namelist() if n.lower().endswith(".dbf")]
     if not dbf:
         log("WARNUNG: keine DBF im Krater-Archiv")
-        return []
+        return [], []
     rows = parse_dbf(z.read(dbf[0]))
-    if rows:
-        log(f"  Krater-Spalten: {list(rows[0].keys())}")
-    out = []
+    types = {}
+    for r in rows:
+        t = ({k.lower(): v for k, v in r.items()}.get("type") or "")
+        types[t] = types.get(t, 0) + 1
+    log(f"  Nomenklatur-Typen: {sorted(types.items(), key=lambda kv: -kv[1])[:25]}")
+    craters, regions = [], []
     for r in rows:
         low = {k.lower(): v for k, v in r.items()}
-        ftype = (low.get("type") or low.get("feature_ty") or low.get("ftype") or "").lower()
-        if "crater" not in ftype:
-            continue
+        ftype = (low.get("type") or "").lower()
         name = low.get("clean_name") or low.get("name")
         lat = fnum(low.get("center_lat") or low.get("lat"))
         lon = fnum(low.get("center_lon") or low.get("lon"))
@@ -589,11 +607,78 @@ def load_craters(cache, source_dir):
             continue
         if lon > 180:
             lon -= 360
-        out.append({"name": name, "lat": round(lat, 3), "lon": round(lon, 3), "d": round(dia, 1),
-                    "origin": (low.get("origin") or "")[:160]})
-    out.sort(key=lambda c: -c["d"])
-    log(f"Mondkrater: {len(out)}")
+        if "crater" in ftype or "satellite" in ftype:
+            c = {"name": name, "lat": round(lat, 3), "lon": round(lon, 3), "d": round(dia, 1)}
+            if "satellite" in ftype:
+                c["sat"] = 1
+            else:
+                c["origin"] = (low.get("origin") or "")[:160]
+            craters.append(c)
+            continue
+        for key, label in REGION_TYPES.items():
+            if ftype.startswith(key):
+                regions.append({"name": name, "type": label, "lat": round(lat, 3), "lon": round(lon, 3), "d": round(dia, 1),
+                                "origin": (low.get("origin") or "")[:160]})
+                break
+    craters.sort(key=lambda c: -c["d"])
+    regions.sort(key=lambda c: -c["d"])
+    log(f"Mondkrater: {len(craters)} (davon Nebenkrater {sum(1 for c in craters if c.get('sat'))}), Regionen: {len(regions)}")
+    return craters, regions
+
+
+def load_robbins(cache, source_dir, min_d=3.0):
+    """Robbins (2018) Lunar Crater Database – alle Krater ab min_d km als kompakte Binärdatei."""
+    for u in ROBBINS_INDEX:
+        idx = fetch(u, cache, None, source_dir, timeout=60, retries=1)
+        if idx:
+            import re
+            links = sorted(set(re.findall(r'href="([^"]+)"', idx.decode("utf-8", "replace"))))
+            log(f"  Robbins-Verzeichnis {u}: {links[:40]}")
+    raw = None
+    for u in ROBBINS_URLS:
+        raw = fetch(u, cache, "robbins_2018.csv", source_dir, timeout=900, retries=2)
+        if raw:
+            log(f"  Robbins OK: {u} ({len(raw) / 1e6:.0f} MB)")
+            break
+    if not raw:
+        log("WARNUNG: Robbins-Kraterdatenbank nicht erreichbar")
+        return []
+    text = raw.decode("utf-8", "replace").splitlines()
+    head = [h.strip() for h in text[0].split(",")]
+    log(f"  Robbins-Spalten: {head[:20]}")
+    def col(*names):
+        for n in names:
+            if n in head:
+                return head.index(n)
+        return None
+    ila, ilo, idi = col("LAT_CIRC_IMG", "LAT_CIRC_TOPO"), col("LON_CIRC_IMG", "LON_CIRC_TOPO"), col("DIAM_CIRC_IMG", "DIAM_CIRC_TOPO")
+    if None in (ila, ilo, idi):
+        log("WARNUNG: Robbins-Spalten nicht gefunden")
+        return []
+    out = []
+    for line in text[1:]:
+        f = line.split(",")
+        try:
+            la, lo, d = float(f[ila]), float(f[ilo]), float(f[idi])
+        except (ValueError, IndexError):
+            continue
+        if d < min_d:
+            continue
+        if lo > 180:
+            lo -= 360
+        out.append((la, lo, d))
+    log(f"Robbins: {len(out)} Krater ≥ {min_d} km")
     return out
+
+
+def write_robbins(path, craters):
+    craters.sort(key=lambda c: c[0])   # nach Breite sortiert
+    with open(path, "wb") as f:
+        f.write(b"SRMC")
+        f.write(struct.pack("<II", 1, len(craters)))
+        for (la, lo, d) in craters:
+            f.write(struct.pack("<fff", la, lo, d))
+    log(f"moon_robbins.bin: {len(craters)} Krater, {os.path.getsize(path) / 1e6:.1f} MB")
 
 
 # --------------------------------------------------------------------------- main
@@ -642,10 +727,16 @@ def main():
             with open(os.path.join(a.out, "comets.txt"), "wb") as f:
                 f.write(com)
             log(f"comets.txt: {len(com.splitlines())} Kometen")
-        craters = load_craters(cache, sd)
+        craters, regions = load_moon_nomenclature(cache, sd)
         if craters:
             with open(os.path.join(a.out, "moon_craters.json"), "w") as f:
                 json.dump(craters, f, ensure_ascii=False, separators=(",", ":"))
+        if regions:
+            with open(os.path.join(a.out, "moon_regions.json"), "w") as f:
+                json.dump(regions, f, ensure_ascii=False, separators=(",", ":"))
+        robbins = load_robbins(cache, sd)
+        if robbins:
+            write_robbins(os.path.join(a.out, "moon_robbins.bin"), robbins)
 
     with open(os.path.join(a.out, "VERSION.txt"), "w") as f:
         f.write(time.strftime("%Y-%m-%d") + "\n")
