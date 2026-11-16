@@ -563,7 +563,13 @@ def parse_dbf(data):
     return rows
 
 
+ROBBINS_PAGES = [
+    "https://astrogeology.usgs.gov/search/map/moon_crater_database_v1_robbins",
+    "https://astrogeology.usgs.gov/search/map/Moon/Research/Craters/lunar_crater_database_robbins_2018",
+]
 ROBBINS_URLS = [
+    "https://asc-astropedia.s3.us-west-2.amazonaws.com/Moon/Research/Craters/lunar_crater_database_robbins_2018.zip",
+    "https://asc-astropedia.s3.us-west-2.amazonaws.com/Moon/Research/Craters/lunar_crater_database_robbins_2018.csv",
     # offizieller Download laut USGS-Produktseite „Moon Crater Database v1 Robbins“ (ca. 93 MB)
     "https://astropedia.astrogeology.usgs.gov/download/Moon/Research/Craters/lunar_crater_database_robbins_2018.zip",
     "https://astropedia.astrogeology.usgs.gov/download/Moon/Research/Craters/lunar_crater_database_robbins_2018",
@@ -701,7 +707,7 @@ def load_robbins(cache, source_dir, min_d=3.0):
                     raw = gzip.decompress(raw)
                 if raw:
                     break
-    urls = [] if raw else ROBBINS_URLS + [u for u in discover_robbins() if "robbins" in u.lower()]
+    urls = [] if raw else discover_links(ROBBINS_PAGES, ["robbins", "crater"]) + ROBBINS_URLS + [u for u in discover_robbins() if "robbins" in u.lower()]
     for u in urls:
         raw = fetch(u, cache, "robbins_2018" + os.path.splitext(u)[1], source_dir, timeout=900, retries=2)
         if raw:
@@ -872,29 +878,40 @@ def load_geology_ages(cache, source_dir, craters):
     sidx = gdf.sindex
     syms = gdf[symf].astype(str).tolist()
     km_per_deg = 1737.4 * math.pi / 180
+    # Fläche jedes Polygons in km² (geografische Koordinaten, Breitenkorrektur am Schwerpunkt)
+    areas = [g.area * km_per_deg ** 2 * max(0.02, math.cos(math.radians(g.centroid.y))) for g in gdf.geometry]
     ages, counts = {}, {}
     for c in craters:
         lat, lon, r = c["lat"], c["lon"], c["d"] / 2
         if r < 2:
             continue
-        pts = [(lon, lat)]
-        for k in range(8):
-            a = k * math.pi / 4
-            dlat = 0.35 * r / km_per_deg * math.sin(a)
-            dlon = 0.35 * r / km_per_deg * math.cos(a) / max(0.05, math.cos(math.radians(lat)))
-            pts.append((lon + dlon, lat + dlat))
+        crater_area = math.pi * r * r
+        # Proben auf Wall und Innenhang (nicht in der Mitte: dort liegen oft jüngere Kleinkrater oder Mare-Lava)
+        pts = []
+        for f in (0.6, 0.85, 1.0, 1.15):
+            for k in range(12):
+                a_ = k * math.pi / 6
+                dlat = f * r / km_per_deg * math.sin(a_)
+                dlon = f * r / km_per_deg * math.cos(a_) / max(0.05, math.cos(math.radians(lat)))
+                pts.append((lon + dlon, lat + dlat))
         votes = {}
-        for i, (x, y) in enumerate(pts):
+        for (x, y) in pts:
             x = x % 360 if shift else ((x + 180) % 360) - 180
-            hit = sidx.query(shapely.Point(x, y), predicate="intersects")
-            for h in hit[:1]:
+            if not -90 < y < 90:
+                continue
+            for h in sidx.query(shapely.Point(x, y), predicate="intersects")[:1]:
                 per, is_crater = unit_period(syms[h])
-                if per and is_crater:
-                    votes[per] = votes.get(per, 0) + (2 if i == 0 else 1)
-        if votes:
+                # nur Kratermaterial, dessen Fläche zum Krater passt (kein Kleinkrater im Kraterinneren)
+                if per and is_crater and areas[h] >= 0.25 * crater_area:
+                    votes[per] = votes.get(per, 0) + 1
+        total = sum(votes.values())
+        if total >= 6:
             per = max(votes, key=votes.get)
-            ages[c["name"]] = per
-            counts[per] = counts.get(per, 0) + 1
+            if votes[per] >= 0.5 * total:
+                ages[c["name"]] = per
+                counts[per] = counts.get(per, 0) + 1
+    for n in ("Tycho", "Copernicus", "Eratosthenes", "Plato", "Archimedes", "Ptolemaeus", "Clavius", "Theophilus", "Hercules", "Langrenus"):
+        log(f"  Kontrolle {n}: {ages.get(n, '–')}")
     log(f"Kraterzeitalter: {len(ages)} Krater {counts}")
     return ages
 
