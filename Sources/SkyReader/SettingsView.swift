@@ -51,6 +51,9 @@ struct SettingsView: View {
             }
             Text("Ist der Mondrand im Bild, werden die Krater mit ihren offiziellen IAU-Namen beschriftet. „Nur die größten“ zeigt die bis zu 25 größten benannten Krater, „Alle“ zusätzlich kleinere sowie erkannte Krater ohne Eigennamen (nummeriert).")
                 .font(.caption).foregroundStyle(Theme.textSecondary)
+            Toggle("Bei Mondaufnahmen nach dem Aufnahmedatum fragen", isOn: $state.askMoonDate)
+            Text("Mit Datum und Uhrzeit werden Libration und Sonnenstand berechnet – dadurch können Krater auch ohne sichtbaren Mondrand benannt werden. Ein Datum im Dateinamen (z. B. „Mond_13.05.jpg“) wird vorgeschlagen.")
+                .font(.caption).foregroundStyle(Theme.textSecondary)
         } header: { Text("Mond") }
 
         Section {

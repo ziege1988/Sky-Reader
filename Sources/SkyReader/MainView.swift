@@ -4,19 +4,24 @@ import SkyReaderCore
 struct MainView: View {
     @EnvironmentObject var state: AppState
     @EnvironmentObject var updater: Updater
+    @EnvironmentObject var journal: JournalStore
 
     var body: some View {
         ZStack {
             NebulaBackground()
             VStack(spacing: 0) {
                 HeaderBar()
-                GeometryReader { geo in
-                    HStack(spacing: 0) {
-                        ImageArea()
-                            .frame(width: geo.size.width * 2 / 3)
-                        Rectangle().fill(Theme.divider).frame(width: 1)
-                        ResultsPanel()
-                            .frame(maxWidth: .infinity)
+                if state.mainTab == .journal {
+                    JournalView()
+                } else {
+                    GeometryReader { geo in
+                        HStack(spacing: 0) {
+                            ImageArea()
+                                .frame(width: geo.size.width * 2 / 3)
+                            Rectangle().fill(Theme.divider).frame(width: 1)
+                            ResultsPanel()
+                                .frame(maxWidth: .infinity)
+                        }
                     }
                 }
             }
@@ -34,6 +39,10 @@ struct MainView: View {
                 .environmentObject(updater)
                 .frame(width: 600, height: 660)
         }
+        .sheet(item: $state.journalDraft) { e in
+            JournalDetailView(entry: e, isNew: true)
+                .environmentObject(journal).environmentObject(state)
+        }
         .sheet(item: $updater.offer) { rel in
             UpdateSheet(release: rel).environmentObject(updater)
         }
@@ -48,7 +57,14 @@ struct HeaderBar: View {
     var body: some View {
         HStack(spacing: 12) {
             Spacer().frame(width: 72) // Platz für die Fensterknöpfe
-            if let l = state.loaded {
+            Picker("", selection: $state.mainTab) {
+                Label("Analyse", systemImage: "scope").tag(AppState.MainTab.analysis)
+                Label("Tagebuch", systemImage: "book.pages").tag(AppState.MainTab.journal)
+            }
+            .pickerStyle(.segmented)
+            .labelsHidden()
+            .frame(width: 230)
+            if let l = state.loaded, state.mainTab == .analysis {
                 Image(systemName: "photo")
                     .foregroundStyle(Theme.textSecondary)
                 Text(l.url.lastPathComponent)

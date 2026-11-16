@@ -179,6 +179,7 @@ struct TextSection: View {
 
 struct BottomBar: View {
     @EnvironmentObject var state: AppState
+    @EnvironmentObject var journal: JournalStore
     var body: some View {
         ViewThatFits(in: .horizontal) {
             bar(compact: false)
@@ -200,6 +201,12 @@ struct BottomBar: View {
                     .help("Mit den aktuellen Einstellungen erneut analysieren")
             }
             Spacer(minLength: 8)
+            Button {
+                if let e = journal.makeEntry(from: state) { state.journalDraft = e }
+            } label: { label("Ins Tagebuch", "book.pages", compact) }
+                .buttonStyle(SkyButtonStyle())
+                .disabled(state.result == nil)
+                .help("Aufnahme mit Analyse und Notizen im Beobachtungstagebuch ablegen")
             Button { state.showExport = true } label: { label("Exportieren", "square.and.arrow.up", compact && state.loaded != nil) }
                 .buttonStyle(SkyButtonStyle(prominent: true))
                 .disabled(state.result == nil)

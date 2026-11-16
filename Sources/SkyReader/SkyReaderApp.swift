@@ -11,6 +11,7 @@ struct SkyReaderApp: App {
         Settings {
             SettingsView()
                 .environmentObject(appDelegate.state)
+                .environmentObject(appDelegate.journal)
                 .environmentObject(appDelegate.updater)
                 .frame(width: 560, height: 620)
         }
@@ -29,6 +30,7 @@ struct SkyReaderApp: App {
 final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     let state = AppState()
     let updater = Updater()
+    let journal = JournalStore()
     private var splashWindow: NSWindow?
     private var mainWindow: NSWindow?
     private var pendingOpen: [URL] = []
@@ -115,6 +117,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         let root = MainView()
             .environmentObject(state)
             .environmentObject(updater)
+            .environmentObject(journal)
         w.contentView = NSHostingView(rootView: root)
         // Gemerkte Position und Bildschirm wiederherstellen
         w.setFrameAutosaveName("SkyReaderMain")
@@ -138,7 +141,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         if let i = args.firstIndex(of: "--selftest"), args.count > i + 2 {
             let moon = args.firstIndex(of: "--moon").flatMap { args.count > $0 + 1 ? URL(fileURLWithPath: args[$0 + 1]) : nil }
             SelfTest.run(image: URL(fileURLWithPath: args[i + 1]), moon: moon,
-                         out: URL(fileURLWithPath: args[i + 2]), state: state, window: w)
+                         out: URL(fileURLWithPath: args[i + 2]), state: state, journal: journal, window: w)
             return
         }
         if updater.autoCheck {

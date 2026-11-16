@@ -4,6 +4,12 @@ import UniformTypeIdentifiers
 import SkyReaderCore
 
 /// Thread-sicheres Abbruch-Flag für die Hintergrundanalyse
+/// Übergabe der Datumsantwort vom Hauptthread an die wartende Analyse
+final class AnswerBox: @unchecked Sendable {
+    var answer: MoonDateAnswer = .unknown
+    let semaphore = DispatchSemaphore(value: 0)
+}
+
 final class CancelFlag: @unchecked Sendable {
     private let lock = NSLock()
     private var value = false
@@ -30,6 +36,15 @@ final class AppState: ObservableObject {
     @Published var showExport = false
     @Published var showSettings = false
     @Published var dropError: String?
+    /// Offene Rückfrage nach dem Aufnahmedatum einer Mondaufnahme
+    @Published var moonQuestion: MoonDateQuestion?
+    @Published var mainTab: MainTab = .analysis
+    enum MainTab: String { case analysis, journal }
+    private var moonAnswerBox: AnswerBox?
+    /// Zuletzt verwendetes Mond-Datum (für Tagebuch/Anzeige)
+    @Published var lastMoonDate: Date?
+    /// Entwurf eines neuen Tagebucheintrags (öffnet die Eingabemaske)
+    @Published var journalDraft: JournalEntry?
 
     // Einstellungen
     @AppStorage("craterMode") var craterMode: AnalysisSettings.CraterMode = .largest
@@ -42,6 +57,7 @@ final class AppState: ObservableObject {
     @AppStorage("showComet") var showComet = true
     @AppStorage("labelScale") var labelScale: Double = 1.0
     @AppStorage("showLabels") var showLabels = true
+    @AppStorage("askMoonDate") var askMoonDate = true
 
     private var cancelFlag: CancelFlag?
     private var startedAt = Date()
@@ -80,6 +96,7 @@ final class AppState: ObservableObject {
             return
         }
         dropError = nil
+        lastMoonDate = nil
         result = nil
         pendingResult = nil
         selectedObjectID = nil
@@ -102,9 +119,18 @@ final class AppState: ObservableObject {
                     self.phase = .analyzing
                 }
                 if flag.isCancelled { throw CancelledError() }
+                let ask: ((MoonDateQuestion) -> MoonDateAnswer)? = settings.moonDate == nil && self.askMoonDateEnabled ? { q in
+                    // Analyse pausiert, bis im Analysefenster geantwortet wurde
+                    let box = AnswerBox()
+                    DispatchQueue.main.async { MainActor.assumeIsolated { self.presentMoonQuestion(q, box: box) } }
+                    while box.semaphore.wait(timeout: .now() + 0.25) == .timedOut {
+                        if flag.isCancelled { return .unknown }
+                    }
+                    return box.answer
+                } : nil
                 let res = try SkyAnalyzer().analyze(image: li.gray, metadata: li.metadata, settings: settings, log: { entry in
                     Task { @MainActor in self.receive(entry) }
-                }, isCancelled: { flag.isCancelled })
+                }, isCancelled: { flag.isCancelled }, askMoonDate: ask)
                 await MainActor.run {
                     guard !flag.isCancelled else { return }
                     self.pendingResult = res
@@ -122,6 +148,21 @@ final class AppState: ObservableObject {
                 }
             }
         }
+    }
+
+    nonisolated var askMoonDateEnabled: Bool { UserDefaults.standard.object(forKey: "askMoonDate") as? Bool ?? true }
+
+    func presentMoonQuestion(_ q: MoonDateQuestion, box: AnswerBox) {
+        moonAnswerBox = box
+        moonQuestion = q
+    }
+
+    /// Antwort aus dem Datums-Popup
+    func answerMoonQuestion(_ a: MoonDateAnswer) {
+        if case .known(let d) = a { lastMoonDate = d }
+        moonQuestion = nil
+        if let b = moonAnswerBox { b.answer = a; b.semaphore.signal() }
+        moonAnswerBox = nil
     }
 
     /// Erneute Analyse desselben Bilds (z. B. nach geänderten Einstellungen)
@@ -151,6 +192,7 @@ final class AppState: ObservableObject {
     /// „Abbrechen“: laufende Analyse stoppen bzw. Ergebnis verwerfen
     func cancel() {
         cancelFlag?.cancel()
+        if moonQuestion != nil { answerMoonQuestion(.unknown) }
         if phase == .analyzing || phase == .loading { phase = .cancelled; append(.warning, "Abbruch angefordert.") }
         pendingResult = nil
         showAnalysisSheet = false

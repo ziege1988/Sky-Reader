@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.4.0
+- **Beobachtungstagebuch**: Aufnahmen mit Analyse, Ort, Ausrüstung, Bedingungen und Notizen ablegen; übersichtliche Kachelansicht mit Suche und Filter (Himmel/Mond/Kometen). Überschrift automatisch: größter Nebel im Bild bzw. „Mond – größter Krater“.
+- **Mond-Datum**: Bei Mondaufnahmen fragt Sky Reader nach Datum/Uhrzeit (Vorschlag aus dem Dateinamen, z. B. „…_13.05.jpg“). Daraus werden Libration, Sonnenstand, Phase und Beleuchtung berechnet.
+- **Kraternamen ohne Mondrand**: Mit bekanntem Datum werden Krater auch in Bildern ohne sichtbaren Mondrand benannt (Abgleich über Kraterpaare und Sonnenstand).
+- **Offizielle IAU-Nomenklatur vollständig**: 8.679 Krater inkl. 7.064 Nebenkrater („Atlas A“) sowie Maria, Seen, Buchten, Gebirge und Täler als Bezeichnungen.
+- **Ringwall-Detektor**: findet Krater über ihre Wälle – ergänzt die Schatten-Erkennung bei hohem Sonnenstand.
+- Krater auf der Nachtseite werden bei bekanntem Datum ausgeblendet.
+
 ## 1.3.1
 - Mondbilder, die (fast) vollständig von der Mondoberfläche ausgefüllt sind, werden zuverlässig als Mond erkannt (vorher teilweise als Himmelsaufnahme behandelt)
 - Scheitert bei einer vermeintlichen Himmelsaufnahme das Plate Solving und ähnelt das Bild einer Mondaufnahme, wird automatisch die Mondanalyse verwendet

@@ -4,7 +4,7 @@ import SkyReaderCore
 /// Automatischer Oberflächentest (CI): fotografiert alle Ansichten der App.
 @MainActor
 enum SelfTest {
-    static func run(image: URL, moon: URL?, out: URL, state: AppState, window: NSWindow) {
+    static func run(image: URL, moon: URL?, out: URL, state: AppState, journal: JournalStore, window: NSWindow) {
         try? FileManager.default.createDirectory(at: out, withIntermediateDirectories: true)
         Task { @MainActor in
             // Einheitliche, gut lesbare Fenstergröße für die Screenshots
@@ -22,6 +22,10 @@ enum SelfTest {
                 snap(window, "04-objektdetails", out)
             }
             try? state.reportText().write(to: out.appendingPathComponent("report.txt"), atomically: true, encoding: .utf8)
+            if var e = journal.makeEntry(from: state) {
+                e.notes = "Plejaden mit Staubwolken der Taurus-Region. Klare, mondlose Nacht."; e.location = "Garten"; e.equipment = "135 mm, APS-C"
+                journal.save(e)
+            }
 
             for (tab, name) in [(0, "analyse"), (1, "darstellung"), (2, "updates"), (3, "ueber")] {
                 SettingsView.initialTab = tab
@@ -51,6 +55,20 @@ enum SelfTest {
                     await exportDialog(state: state, window: window, out: out, name: "09c-mond-export-live", hide: [r.objects[1].id])
                 }
                 try? state.reportText().write(to: out.appendingPathComponent("report-mond.txt"), atomically: true, encoding: .utf8)
+                if var e = journal.makeEntry(from: state) {
+                    e.notes = "Zunehmende Sichel, Nordostrand mit Mare Crisium. Ruhige Luft."; e.equipment = "Refraktor, Planetenkamera"
+                    journal.save(e)
+                    // Tagebuch: Kacheln und Eingabemaske
+                    state.mainTab = .journal
+                    try? await Task.sleep(nanoseconds: 1_500_000_000)
+                    snap(window, "11-tagebuch-kacheln", out)
+                    state.journalDraft = e
+                    try? await Task.sleep(nanoseconds: 1_500_000_000)
+                    snapSheet(window, "12-tagebuch-eintrag", out)
+                    state.journalDraft = nil
+                    state.mainTab = .analysis
+                    try? await Task.sleep(nanoseconds: 800_000_000)
+                }
                 exportSamples(state: state, out: out, prefix: "10-mond-export")
             }
             print("SELFTEST: fertig – \(state.phaseText), \(state.result?.objects.count ?? 0) Objekte")
@@ -73,7 +91,15 @@ enum SelfTest {
         print("SELFTEST: lade \(url.lastPathComponent)")
         state.load(url: url)
         let deadline = Date().addingTimeInterval(180)
-        while state.isBusy && Date() < deadline { try? await Task.sleep(nanoseconds: 300_000_000) }
+        while state.isBusy && Date() < deadline {
+            try? await Task.sleep(nanoseconds: 300_000_000)
+            if state.moonQuestion != nil {
+                // Datums-Popup fotografieren und mit dem bekannten Aufnahmedatum der Testaufnahme beantworten
+                try? await Task.sleep(nanoseconds: 900_000_000)
+                snapSheet(window, "\(prefix)-datum-popup", out)
+                state.answerMoonQuestion(.known(ISO8601DateFormatter().date(from: "2024-05-13T20:30:00Z")!))
+            }
+        }
         try? await Task.sleep(nanoseconds: 800_000_000)
         snapSheet(window, "\(prefix)-analyse-popup", out)
     }

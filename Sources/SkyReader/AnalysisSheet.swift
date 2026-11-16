@@ -29,6 +29,9 @@ struct AnalysisSheet: View {
                 .tint(failed ? Theme.error : done ? Theme.success : Theme.accent)
                 .padding(.horizontal, 20)
 
+            if let q = state.moonQuestion {
+                MoonDatePanel(question: q).padding(.horizontal, 20).padding(.top, 14)
+            }
             ScrollViewReader { proxy in
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: 3) {
@@ -68,7 +71,7 @@ struct AnalysisSheet: View {
             }
             .padding(.horizontal, 20).padding(.bottom, 18)
         }
-        .frame(width: 620, height: 520)
+        .frame(width: 660, height: state.moonQuestion != nil ? 700 : 520)
         .background(NebulaBackground())
         .interactiveDismissDisabled()
     }
