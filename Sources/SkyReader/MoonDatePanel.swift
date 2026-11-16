@@ -103,6 +103,7 @@ struct MoonDatePanel: View {
         }
         s += " → \(e.best.phaseName), \(Int((e.best.illuminatedFraction * 100).rounded())) % beleuchtet."
         if e.usedFileNameDate { s += " Der Tag aus dem Dateinamen wurde berücksichtigt." }
+        if e.usedObserver { s += " Nur Zeiten, zu denen der Mond an deinem Beobachtungsort sichtbar war." }
         s += " Passt das nicht, Datum einfach korrigieren."
         return s
     }

@@ -155,6 +155,35 @@ public enum MoonRegistration {
 
     nonisolated(unsafe) private static var cachedRegions: [MoonRegion]?
 
+    nonisolated(unsafe) private static var cachedAges: [String: String]?
+
+    /// Geologisches Zeitalter je Kratername (USGS Unified Geologic Map of the Moon, 2020): C, E, I, N, pN
+    public static func craterAges() -> [String: String] {
+        if let c = cachedAges { return c }
+        let list: [String: String]
+        if let u = ResourceLocator.catalogURL("moon_crater_ages.json"), let d = try? Data(contentsOf: u),
+           let m = try? JSONDecoder().decode([String: String].self, from: d) { list = m } else { list = [:] }
+        cachedAges = list
+        return list
+    }
+
+    /// Deutsche Beschreibung einer geologischen Periode des Mondes
+    public static func germanPeriod(_ code: String) -> (name: String, age: String, text: String)? {
+        switch code {
+        case "C": return ("Kopernikanisch", "jünger als ca. 1,1 Mrd. Jahre",
+                          "Ein geologisch junger Krater aus der Kopernikanischen Periode. Solche Krater sind oft noch scharfkantig und haben helle Strahlen aus frisch ausgeworfenem Material, das noch nicht durch Sonnenwind und Mikrometeoriten nachgedunkelt ist.")
+        case "E": return ("Eratosthenisch", "ca. 3,2 bis 1,1 Mrd. Jahre",
+                          "Ein Krater aus der Eratosthenischen Periode. Seine Strahlen sind inzwischen verblasst, die Form ist aber meist noch gut erhalten.")
+        case "I": return ("Imbrisch", "ca. 3,85 bis 3,2 Mrd. Jahre",
+                          "Ein Krater aus der Imbrischen Periode – der Zeit, in der das Imbrium-Becken entstand und die großen Maria mit Lava geflutet wurden.")
+        case "N": return ("Nektarisch", "ca. 3,92 bis 3,85 Mrd. Jahre",
+                          "Ein alter Krater aus der Nektarischen Periode, benannt nach dem Nectaris-Becken. Spätere Einschläge haben ihn bereits deutlich abgetragen.")
+        case "pN": return ("Prä-Nektarisch", "älter als ca. 3,92 Mrd. Jahre",
+                           "Einer der ältesten erhaltenen Krater aus der Frühzeit des Mondes, vor der Entstehung des Nectaris-Beckens. Er ist stark verwittert und von jüngeren Kratern überprägt.")
+        default: return nil
+        }
+    }
+
     public static func regions() -> [MoonRegion] {
         if let c = cachedRegions { return c }
         guard let u = ResourceLocator.catalogURL("moon_regions.json"), let d = try? Data(contentsOf: u),
@@ -189,24 +218,31 @@ public enum MoonRegistration {
         let nx0 = mx - limb.cx, ny0 = my - limb.cy, nl = max(hypot(nx0, ny0), 1e-9)
         let ex = limb.cx + nx0 / nl * limb.r, ey = limb.cy + ny0 / nl * limb.r
 
-        var best: (score: Double, pose: MoonPose)?
-        var runnerUp = 0.0
-        let grid = Grid(width: width, height: height, cell: 48)
-        for scale in [0.86, 0.9, 0.93, 0.96, 1.0, 1.04] {
-            if isCancelled() { return nil }
-            let R = limb.r * scale
-            let cx = ex - nx0 / nl * R, cy = ey - ny0 / nl * R
-            // nur Krater mit plausibler Perspektive (kurze Achse zeigt zur Scheibenmitte)
-            let usable = dets.filter { c in
-                let rx = c.x - cx, ry = c.y - cy, rr = hypot(rx, ry)
-                guard rr < R * 0.985 else { return false }
-                if c.minorRadius <= 0 || c.minorRadius / c.r > 0.85 { return true }
-                let a = deg2rad(c.angleDeg)
-                return abs(-sin(a) * rx / rr + cos(a) * ry / rr) > 0.8
-            }
-            guard usable.count >= 6 else { continue }
-            let kmpx = MoonAnalyzer.moonRadiusKm / R
-            for mirror in [false, true] {
+        // Alle Maßstab/Spiegel-Kombinationen parallel durchsuchen; die Hypothesen werden danach in derselben
+        // Reihenfolge wie bei sequentieller Suche ausgewertet → identisches Ergebnis, nur schneller.
+        let combos: [(Double, Bool)] = [0.86, 0.9, 0.93, 0.96, 1.0, 1.04].flatMap { sc in [(sc, false), (sc, true)] }
+        var results = [[(Double, MoonPose)]](repeating: [], count: combos.count)
+        let lock = NSLock()
+        let cancelled = isCancelled
+        withoutActuallyEscaping(cancelled) { cancelledFn in
+            DispatchQueue.concurrentPerform(iterations: combos.count) { ci in
+                let (scale, mirror) = combos[ci]
+                var hyps: [(Double, MoonPose)] = []
+                defer { lock.lock(); results[ci] = hyps; lock.unlock() }
+                if cancelledFn() { return }
+                let grid = Grid(width: width, height: height, cell: 48)
+                let R = limb.r * scale
+                let cx = ex - nx0 / nl * R, cy = ey - ny0 / nl * R
+                // nur Krater mit plausibler Perspektive (kurze Achse zeigt zur Scheibenmitte)
+                let usable = dets.filter { c in
+                    let rx = c.x - cx, ry = c.y - cy, rr = hypot(rx, ry)
+                    guard rr < R * 0.985 else { return false }
+                    if c.minorRadius <= 0 || c.minorRadius / c.r > 0.85 { return true }
+                    let a = deg2rad(c.angleDeg)
+                    return abs(-sin(a) * rx / rr + cos(a) * ry / rr) > 0.8
+                }
+                guard usable.count >= 6 else { return }
+                let kmpx = MoonAnalyzer.moonRadiusKm / R
                 let V: [Vec3] = usable.map { c in
                     var x = (c.x - cx) / R; let y = -(c.y - cy) / R
                     let z = max(0, 1 - x * x - y * y).squareRoot()
@@ -220,7 +256,7 @@ public enum MoonRegistration {
                 for i in use { cand[i] = cat.indices.filter { catD[$0] > dkm[i] * 0.4 && catD[$0] < dkm[i] * 2.6 } }
                 for ai in 0..<use.count {
                     for bi in (ai + 1)..<use.count {
-                        if isCancelled() { return nil }
+                        if cancelledFn() { return }
                         let a = use[ai], b = use[bi]
                         let sep = acos(max(-1, min(1, V[a].dot(V[b]))))
                         if sep < deg2rad(1.5) { continue }
@@ -239,16 +275,24 @@ public enum MoonRegistration {
                                 let pose = MoonPose(rotation: rot, mirrored: mirror, cx: cx, cy: cy, radius: R, matches: 0, candidates: usable.count)
                                 let (s, _) = score(pose, dets: usable, grid: grid, catVec: catVec, catD: catD,
                                                    width: width, height: height, quickLimit: 14, quickNeed: 3)
-                                if let bb = best {
-                                    if s > bb.score {
-                                        if angleBetween(pose, bb.pose) > 10 { runnerUp = max(runnerUp, bb.score) }
-                                        best = (s, pose)
-                                    } else if angleBetween(pose, bb.pose) > 10 { runnerUp = max(runnerUp, s) }
-                                } else { best = (s, pose) }
+                                hyps.append((s, pose))
                             }
                         }
                     }
                 }
+            }
+        }
+        if isCancelled() { return nil }
+        var best: (score: Double, pose: MoonPose)?
+        var runnerUp = 0.0
+        for list in results {
+            for (s, pose) in list {
+                if let bb = best {
+                    if s > bb.score {
+                        if angleBetween(pose, bb.pose) > 10 { runnerUp = max(runnerUp, bb.score) }
+                        best = (s, pose)
+                    } else if angleBetween(pose, bb.pose) > 10 { runnerUp = max(runnerUp, s) }
+                } else { best = (s, pose) }
             }
         }
         guard var b = best else { return nil }
@@ -316,39 +360,54 @@ public enum MoonRegistration {
         var best: (Double, MoonPose)?
         var runnerUp = 0.0
         func angDiff(_ x: Double, _ y: Double) -> Double { abs(atan2(sin(x - y), cos(x - y))) }
-        for (ai, a) in anchors.enumerated() {
-            if isCancelled() { return nil }
-            for (bi, b) in anchors.enumerated() where bi != ai {
-                let vax = b.x - a.x, vay = -(b.y - a.y)
-                let dab = hypot(vax, vay)
-                guard dab > 2 * max(a.r, b.r) else { continue }
-                let q = Foundation.log(a.r / b.r), tt = Foundation.log(dab / a.r)
-                for j in 0..<hyp.count {
-                    for l in 0..<hyp.count where l != j {
-                        guard abs(Foundation.log(hrho[j] / hrho[l]) - q) < 0.45 else { continue }
-                        let dcu = hu[l] - hu[j], dcv = hv[l] - hv[j]
-                        let dc = hypot(dcu, dcv)
-                        guard dc > 1e-6, abs(Foundation.log(dc / hrho[j]) - tt) < 0.4 else { continue }
-                        for mirror in [false, true] {
-                            let m: Double = mirror ? -1 : 1
-                            let R = dab / dc
-                            let th = atan2(vay, vax) - atan2(dcv, m * dcu)
-                            // Sonnenstand muss zur gemessenen Schattenrichtung passen (Vorzeichen offen)
-                            let pred = -(th + atan2(htv[j], m * htu[j]))
-                            guard min(angDiff(pred, -alpha), angDiff(pred, -alpha + .pi)) < deg2rad(35) else { continue }
-                            let mu = m * hu[j]
-                            let dx = cos(th) * mu - sin(th) * hv[j], dy = sin(th) * mu + cos(th) * hv[j]
-                            let ps = pose(theta: th, mirror: mirror, R: R, cx: a.x - R * dx, cy: a.y + R * dy)
-                            let (sc, _) = score(ps, dets: dets, grid: grid, catVec: catVec, catD: catD, width: width, height: height,
-                                                quickLimit: 14, quickNeed: 4)
-                            if let bb = best {
-                                let far = hypot(ps.cx - bb.1.cx, ps.cy - bb.1.cy) > 0.05 * bb.1.radius || abs(Foundation.log(ps.radius / bb.1.radius)) > 0.2
-                                if sc > bb.0 { if far { runnerUp = max(runnerUp, bb.0) }; best = (sc, ps) }
-                                else if far { runnerUp = max(runnerUp, sc) }
-                            } else { best = (sc, ps) }
+        // Ankerkrater parallel durchsuchen; Auswertung danach in der ursprünglichen Reihenfolge → identisches Ergebnis
+        var results = [[(Double, MoonPose)]](repeating: [], count: anchors.count)
+        let lock = NSLock()
+        withoutActuallyEscaping(isCancelled) { cancelledFn in
+            DispatchQueue.concurrentPerform(iterations: anchors.count) { ai in
+                var hyps: [(Double, MoonPose)] = []
+                defer { lock.lock(); results[ai] = hyps; lock.unlock() }
+                if cancelledFn() { return }
+                let g = Grid(width: width, height: height, cell: 48)
+                let a = anchors[ai]
+                for (bi, b) in anchors.enumerated() where bi != ai {
+                    let vax = b.x - a.x, vay = -(b.y - a.y)
+                    let dab = hypot(vax, vay)
+                    guard dab > 2 * max(a.r, b.r) else { continue }
+                    let q = Foundation.log(a.r / b.r), tt = Foundation.log(dab / a.r)
+                    for j in 0..<hyp.count {
+                        for l in 0..<hyp.count where l != j {
+                            guard abs(Foundation.log(hrho[j] / hrho[l]) - q) < 0.45 else { continue }
+                            let dcu = hu[l] - hu[j], dcv = hv[l] - hv[j]
+                            let dc = hypot(dcu, dcv)
+                            guard dc > 1e-6, abs(Foundation.log(dc / hrho[j]) - tt) < 0.4 else { continue }
+                            for mirror in [false, true] {
+                                let m: Double = mirror ? -1 : 1
+                                let R = dab / dc
+                                let th = atan2(vay, vax) - atan2(dcv, m * dcu)
+                                // Sonnenstand muss zur gemessenen Schattenrichtung passen (Vorzeichen offen)
+                                let pred = -(th + atan2(htv[j], m * htu[j]))
+                                guard min(angDiff(pred, -alpha), angDiff(pred, -alpha + .pi)) < deg2rad(35) else { continue }
+                                let mu = m * hu[j]
+                                let dx = cos(th) * mu - sin(th) * hv[j], dy = sin(th) * mu + cos(th) * hv[j]
+                                let ps = pose(theta: th, mirror: mirror, R: R, cx: a.x - R * dx, cy: a.y + R * dy)
+                                let (sc, _) = score(ps, dets: dets, grid: g, catVec: catVec, catD: catD, width: width, height: height,
+                                                    quickLimit: 14, quickNeed: 4)
+                                hyps.append((sc, ps))
+                            }
                         }
                     }
                 }
+            }
+        }
+        if isCancelled() { return nil }
+        for list in results {
+            for (sc, ps) in list {
+                if let bb = best {
+                    let far = hypot(ps.cx - bb.1.cx, ps.cy - bb.1.cy) > 0.05 * bb.1.radius || abs(Foundation.log(ps.radius / bb.1.radius)) > 0.2
+                    if sc > bb.0 { if far { runnerUp = max(runnerUp, bb.0) }; best = (sc, ps) }
+                    else if far { runnerUp = max(runnerUp, sc) }
+                } else { best = (sc, ps) }
             }
         }
         guard var b = best else { return nil }

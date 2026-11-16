@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.6.0
+- **Geologisches Alter der Krater** aus der USGS-Karte „Unified Geologic Map of the Moon“ (2020, gemeinfrei): Kopernikanisch, Eratosthenisch, Imbrisch, Nektarisch oder Prä-Nektarisch – mit Altersangabe und verständlicher Erklärung in der Beschreibung.
+- **Beobachtungsort** (Einstellungen → Analyse): Die Datumsberechnung berücksichtigt nur Zeiten, zu denen der Mond am Ort über dem Horizont stand; die Analyse zeigt die Mondhöhe und warnt bei unmöglichen Zeitpunkten. Der Ortsname wird im Tagebuch vorbelegt.
+- **Mondanalyse etwa dreimal schneller** (auf 4 Kernen gemessen, auf Apple-Silicon-Macs mit mehr Kernen entsprechend mehr): Der Kraterabgleich nutzt alle Prozessorkerne. Die Auswertung erfolgt in derselben Reihenfolge wie bisher – die Kraternamen sind unverändert.
+- **Reproduzierbare Ergebnisse**: Der Mondrand wurde bisher mit Zufallsstichproben vermessen, wodurch dasselbe Bild leicht unterschiedliche Ergebnisse liefern konnte. Jetzt feste Startwerte und Median aus sieben Durchläufen; gelingt die Zuordnung nicht eindeutig, werden weitere Randkreise geprüft.
+- **Fortschrittsbalken mit Restzeit**: lernt aus den letzten Analysen, wie lange Mond- bzw. Himmelsaufnahmen dauern; die Wartezeit im Datums-Popup zählt nicht mit.
+
 ## 1.5.0
 - **Datum aus dem Bild berechnet**: Ist der Mondrand im Bild, bestimmt Sky Reader zuerst die Lage des Mondes (Libration) und die Lage der Licht-Schatten-Grenze (Colongitude) und sucht daraus den passenden Aufnahmezeitpunkt. Dieser ist im Datums-Popup vorausgewählt und kann korrigiert werden; ähnlich gut passende Alternativen sind anklickbar. Ein Tag im Dateinamen ohne Jahr (z. B. „13.05“) wird berücksichtigt – das Jahr wird dann berechnet.
 - **Robbins Lunar Crater Database (2018)** zusätzlich zur IAU-Nomenklatur (sobald der Katalog-Build sie laden kann): genaue Durchmesser benannter Krater, Lage und Größe unbenannter Krater; erkannte Krater ohne Gegenstück im Katalog werden als Fehlerkennung verworfen.

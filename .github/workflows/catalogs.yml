@@ -27,6 +27,8 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
+      - name: Geodaten-Bibliotheken (geologische Mondkarte)
+        run: pip install --quiet geopandas pyogrio shapely pyproj
       - name: Selbst bereitgestellte Quelldateien laden (Release „katalog-quellen“)
         env:
           GH_TOKEN: ${{ github.token }}

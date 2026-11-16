@@ -109,6 +109,7 @@ final class JournalStore: ObservableObject {
             writeJPEG(thumb, to: thumbURL(e), maxSize: 900)
         }
         e.created = Date()
+        if state.useObserver, !state.observerName.isEmpty { e.location = state.observerName }
         return e
     }
 

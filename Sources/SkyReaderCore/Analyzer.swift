@@ -53,6 +53,9 @@ public struct AnalysisSettings: Codable, Sendable, Equatable {
     public var maxAnalysisSize: Int = 2000
     /// Aufnahmezeitpunkt einer Mondaufnahme (falls bekannt) – ermöglicht Libration/Sonnenstand
     public var moonDate: Date?
+    /// Beobachtungsort (Grad, Ost positiv) – schränkt die Datumsschätzung auf Zeiten ein, zu denen der Mond über dem Horizont stand
+    public var observerLatitude: Double?
+    public var observerLongitude: Double?
     public init() {}
 }
 

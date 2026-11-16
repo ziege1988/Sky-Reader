@@ -759,6 +759,146 @@ def write_robbins(path, craters):
     log(f"moon_robbins.bin: {len(craters)} Krater, {os.path.getsize(path) / 1e6:.1f} MB")
 
 
+# --------------------------------------------------------------------------- Geologie (Kraterzeitalter)
+
+GEOLOGY_PAGES = [
+    "https://astrogeology.usgs.gov/search/map/unified_geologic_map_of_the_moon_1_5m_2020",
+    "https://astrogeology.usgs.gov/search/map/Moon/Geology/Unified_Geologic_Map_of_the_Moon_GIS",
+]
+GEOLOGY_URLS = [
+    "https://astropedia.astrogeology.usgs.gov/download/Moon/Geology/Unified_Geologic_Map_of_the_Moon_GIS_v2.zip",
+    "https://astropedia.astrogeology.usgs.gov/download/Moon/Geology/Unified_Geologic_Map_of_the_Moon_GIS.zip",
+]
+PERIODS = ("pN", "C", "E", "I", "N")
+
+
+def discover_links(pages, must):
+    """Sucht Datei-Links (auch in eingebettetem JSON der Seite) mit bestimmten Schlüsselwörtern."""
+    import re
+    found = []
+    for u in pages:
+        page = fetch(u, None, None, None, timeout=60, retries=1)
+        if not page:
+            continue
+        html = page.decode("utf-8", "replace").replace("\\/", "/")
+        for h in re.findall(r"https?://[^\"'\s<>\\]+?\.(?:zip|gpkg|7z)", html):
+            if any(m in h.lower() for m in must) and h not in found:
+                found.append(h)
+    log(f"  Gefundene Links: {found[:20]}")
+    return found
+
+
+def unit_period(sym):
+    """Periode aus dem Einheitensymbol (z. B. „Cc“ → C, „pNc“ → pN, „Ic2“ → I); Kratereinheit, wenn danach ein „c“ folgt."""
+    sym = (sym or "").strip()
+    for p in PERIODS:
+        if sym.startswith(p):
+            rest = sym[len(p):]
+            return p, rest[:1] == "c"
+    return None, False
+
+
+def load_geology_ages(cache, source_dir, craters):
+    """USGS Unified Geologic Map of the Moon (2020): geologisches Zeitalter je benanntem Krater."""
+    try:
+        import geopandas as gpd, pyogrio, shapely
+    except ImportError:
+        log("WARNUNG: geopandas fehlt – Kraterzeitalter werden übersprungen")
+        return {}
+    raw = None
+    for fn in (sorted(os.listdir(source_dir)) if source_dir and os.path.isdir(source_dir) else []):
+        if "geolog" in fn.lower():
+            raw = open(os.path.join(source_dir, fn), "rb").read()
+            log(f"  Geologie aus bereitgestellter Datei: {fn}")
+            break
+    if raw is None:
+        for u in discover_links(GEOLOGY_PAGES, ["geolog"]) + GEOLOGY_URLS:
+            raw = fetch(u, cache, "moon_geology.zip", source_dir, timeout=900, retries=2)
+            if raw and raw[:2] == b"PK":
+                log(f"  Geologie OK: {u} ({len(raw) / 1e6:.0f} MB)")
+                break
+            raw = None
+    if not raw:
+        log("WARNUNG: Geologische Mondkarte nicht erreichbar")
+        return {}
+    import tempfile
+    tmp = tempfile.mkdtemp()
+    zipfile.ZipFile(io.BytesIO(raw)).extractall(tmp)
+    # Datenquellen: Shapefiles, GeoPackages oder File-Geodatabases
+    sources = []
+    for root, dirs, files in os.walk(tmp):
+        for d in dirs:
+            if d.lower().endswith(".gdb"):
+                sources.append(os.path.join(root, d))
+        for f in files:
+            if f.lower().endswith((".shp", ".gpkg")):
+                sources.append(os.path.join(root, f))
+    log(f"  Geologie-Quellen: {[os.path.relpath(x, tmp) for x in sources][:30]}")
+    best = None
+    for src in sources:
+        try:
+            layers = [l[0] for l in pyogrio.list_layers(src)]
+        except Exception as ex:  # noqa
+            log(f"  {src}: {ex}")
+            continue
+        for layer in layers:
+            try:
+                info = pyogrio.read_info(src, layer=layer)
+            except Exception:
+                continue
+            geom = str(info.get("geometry_type", ""))
+            fields = list(info.get("fields", []))
+            log(f"  Ebene {os.path.basename(src)}:{layer} {geom} n={info.get('features')} Felder={fields[:15]}")
+            if "Polygon" not in geom:
+                continue
+            symf = next((f for f in fields if f.lower() in ("firstunit", "first_unit", "unitsymbol", "unit_symbol", "unit", "symbol", "unitsym")), None)
+            if symf and (best is None or info.get("features", 0) > best[3]):
+                best = (src, layer, symf, info.get("features", 0))
+    if not best:
+        log("WARNUNG: keine Einheiten-Ebene gefunden")
+        return {}
+    src, layer, symf, n = best
+    gdf = gpd.read_file(src, layer=layer, columns=[symf])
+    log(f"  Einheiten-Ebene: {layer} ({n} Polygone), Feld {symf}, CRS {gdf.crs}")
+    try:
+        if gdf.crs is not None and gdf.crs.is_projected:
+            gdf = gdf.to_crs(gdf.crs.geodetic_crs)
+    except Exception as ex:  # noqa
+        log(f"  CRS-Umrechnung fehlgeschlagen: {ex}")
+        return {}
+    b = gdf.total_bounds
+    log(f"  Ausdehnung: {b}")
+    shift = 360 if b[2] > 181 else 0   # 0…360°-Längen
+    sidx = gdf.sindex
+    syms = gdf[symf].astype(str).tolist()
+    km_per_deg = 1737.4 * math.pi / 180
+    ages, counts = {}, {}
+    for c in craters:
+        lat, lon, r = c["lat"], c["lon"], c["d"] / 2
+        if r < 2:
+            continue
+        pts = [(lon, lat)]
+        for k in range(8):
+            a = k * math.pi / 4
+            dlat = 0.35 * r / km_per_deg * math.sin(a)
+            dlon = 0.35 * r / km_per_deg * math.cos(a) / max(0.05, math.cos(math.radians(lat)))
+            pts.append((lon + dlon, lat + dlat))
+        votes = {}
+        for i, (x, y) in enumerate(pts):
+            x = x % 360 if shift else ((x + 180) % 360) - 180
+            hit = sidx.query(shapely.Point(x, y), predicate="intersects")
+            for h in hit[:1]:
+                per, is_crater = unit_period(syms[h])
+                if per and is_crater:
+                    votes[per] = votes.get(per, 0) + (2 if i == 0 else 1)
+        if votes:
+            per = max(votes, key=votes.get)
+            ages[c["name"]] = per
+            counts[per] = counts.get(per, 0) + 1
+    log(f"Kraterzeitalter: {len(ages)} Krater {counts}")
+    return ages
+
+
 # --------------------------------------------------------------------------- main
 
 def main():
@@ -812,6 +952,11 @@ def main():
         if regions:
             with open(os.path.join(a.out, "moon_regions.json"), "w") as f:
                 json.dump(regions, f, ensure_ascii=False, separators=(",", ":"))
+        if craters:
+            ages = load_geology_ages(cache, sd, craters)
+            if ages:
+                with open(os.path.join(a.out, "moon_crater_ages.json"), "w") as f:
+                    json.dump(ages, f, ensure_ascii=False, separators=(",", ":"))
         robbins = load_robbins(cache, sd)
         if robbins:
             write_robbins(os.path.join(a.out, "moon_robbins.bin"), robbins)

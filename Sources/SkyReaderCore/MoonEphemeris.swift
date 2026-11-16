@@ -15,6 +15,9 @@ public struct MoonEphemeris: Sendable {
     public var ageDays: Double
     public var distanceKm: Double
     public var waxing: Bool
+    /// Ekliptikale Länge/Breite des Mondes und Länge der Sonne (Grad, geozentrisch) – für Horizonthöhen
+    public var moonEclLon: Double = 0, moonEclLat: Double = 0, sunEclLon: Double = 0
+    var julian: Double = 0
 
     /// Colongitude der Sonne (Lage des Morgenterminators), Grad
     public var colongitude: Double { var c = 90 - subSolarLon; c = c.truncatingRemainder(dividingBy: 360); return c < 0 ? c + 360 : c }
@@ -88,6 +91,30 @@ public struct MoonEphemeris: Sendable {
         ageDays = elong / 360 * 29.530589
         waxing = elong < 180
         distanceKm = dist
+        moonEclLon = lam; moonEclLat = bet; sunEclLon = sunLon; julian = jd
+    }
+
+    /// Höhe von Mond (topozentrisch, mit Parallaxe) und Sonne über dem Horizont, Grad.
+    /// - Parameters: latitude/longitude des Beobachtungsorts (Grad, Ost positiv)
+    public func altitudes(latitude: Double, longitude: Double) -> (moon: Double, sun: Double) {
+        let T = (julian - 2451545.0) / 36525
+        let eps = deg2rad(23.439291 - 0.0130042 * T)
+        func equatorial(_ lonDeg: Double, _ latDeg: Double) -> (ra: Double, dec: Double) {
+            let l = deg2rad(lonDeg), b = deg2rad(latDeg)
+            let ra = atan2(sin(l) * cos(eps) - tan(b) * sin(eps), cos(l))
+            let dec = asin(sin(b) * cos(eps) + cos(b) * sin(eps) * sin(l))
+            return (ra, dec)
+        }
+        var gmst = 280.46061837 + 360.98564736629 * (julian - 2451545.0) + 0.000387933 * T * T
+        gmst = gmst.truncatingRemainder(dividingBy: 360)
+        let lst = deg2rad(gmst + longitude)
+        let phi = deg2rad(latitude)
+        func alt(_ q: (ra: Double, dec: Double)) -> Double {
+            rad2deg(asin(sin(phi) * sin(q.dec) + cos(phi) * cos(q.dec) * cos(lst - q.ra)))
+        }
+        let am = alt(equatorial(moonEclLon, moonEclLat))
+        let parallax = rad2deg(asin(6378.14 / distanceKm))
+        return (am - parallax * cos(deg2rad(am)), alt(equatorial(sunEclLon, 0)))
     }
 }
 

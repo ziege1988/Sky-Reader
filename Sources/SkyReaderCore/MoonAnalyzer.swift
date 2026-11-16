@@ -155,7 +155,12 @@ public enum MoonAnalyzer {
     // MARK: Mondrand
 
     /// RANSAC-Kreisanpassung an die scharfe Hell-Dunkel-Kante zum schwarzen Himmel
-    public static func fitLimb(_ img: GrayImage, det: MoonDetection) -> LimbCircle? {
+    public static func fitLimb(_ img: GrayImage, det: MoonDetection) -> LimbCircle? { limbCandidates(img, det: det).first }
+
+    /// Randkreis-Kandidaten aus mehreren RANSAC-Durchläufen mit festen Startwerten:
+    /// zuerst der Median-Kreis, danach die übrigen (vom Median aus nach außen) – für eine erneute Registrierung,
+    /// falls die Zuordnung mit dem Median-Kreis nicht eindeutig gelingt.
+    public static func limbCandidates(_ img: GrayImage, det: MoonDetection) -> [LimbCircle] {
         let w = img.width, h = img.height
         let sm = img.boxBlurred(radius: 2)
         // Himmel- und Mondhelligkeit
@@ -186,24 +191,24 @@ public enum MoonAnalyzer {
                 if inside - outside > 0.35 * (lit - sky) && outside < skyThr { pts.append((Double(x), Double(y))) }
             }
         }
-        guard pts.count >= 30 else { return nil }
-        var rng = SystemRandomNumberGenerator()
-        var best: LimbCircle?
+        guard pts.count >= 30 else { return [] }
         let minR = Double(min(w, h)) * 0.15, maxR = Double(max(w, h)) * 25
         let tol = 2.0
-        for _ in 0..<2000 {
-            let a = pts[Int.random(in: 0..<pts.count, using: &rng)]
-            let b = pts[Int.random(in: 0..<pts.count, using: &rng)]
-            let c = pts[Int.random(in: 0..<pts.count, using: &rng)]
-            guard let circ = circleFrom(a, b, c), circ.r > minR, circ.r < maxR else { continue }
-            var n = 0
-            for p in pts where abs(hypot(p.0 - circ.cx, p.1 - circ.cy) - circ.r) < tol { n += 1 }
-            if best == nil || n > best!.inliers { best = LimbCircle(cx: circ.cx, cy: circ.cy, r: circ.r, inliers: n) }
-        }
-        if ProcessInfo.processInfo.environment["SR_DEBUG"] != nil { print("limb pts \(pts.count) best \(String(describing: best))") }
-        guard var b = best, b.inliers >= max(30, pts.count / 10) else { return nil }
-        // Die Randpunkte müssen einen langen Bogen bilden (Terminator-Punkte liegen nicht auf einem Kreis)
-        do {
+        // Ein RANSAC-Durchlauf (2000 Stichproben, Bewertung nach Trefferzahl, algebraischer Fit auf den Inliern)
+        func ransac(seed: UInt64) -> (LimbCircle, [(Double, Double)])? {
+            var rng = SplitMix64(seed: seed)
+            var best: LimbCircle?
+            for _ in 0..<2000 {
+                let a = pts[Int.random(in: 0..<pts.count, using: &rng)]
+                let b = pts[Int.random(in: 0..<pts.count, using: &rng)]
+                let c = pts[Int.random(in: 0..<pts.count, using: &rng)]
+                guard let circ = circleFrom(a, b, c), circ.r > minR, circ.r < maxR else { continue }
+                var n = 0
+                for p in pts where abs(hypot(p.0 - circ.cx, p.1 - circ.cy) - circ.r) < tol { n += 1 }
+                if best == nil || n > best!.inliers { best = LimbCircle(cx: circ.cx, cy: circ.cy, r: circ.r, inliers: n) }
+            }
+            guard var b = best, b.inliers >= max(30, pts.count / 10) else { return nil }
+            // Die Randpunkte müssen einen langen Bogen bilden (Terminator-Punkte liegen nicht auf einem Kreis)
             let inl = pts.filter { abs(hypot($0.0 - b.cx, $0.1 - b.cy) - b.r) < tol }
             var span = 0.0
             if let f = inl.first {
@@ -211,18 +216,35 @@ public enum MoonAnalyzer {
                 span = inl.map { hypot($0.0 - far.0, $0.1 - far.1) }.max() ?? 0
             }
             if span < 0.3 * Double(max(w, h)) { return nil }
+            if let r = kasaFit(inl) { b = LimbCircle(cx: r.cx, cy: r.cy, r: r.r, inliers: inl.count) }
+            return (b, inl)
         }
-        // Verfeinern (algebraischer Fit auf Inliern)
-        let inl = pts.filter { abs(hypot($0.0 - b.cx, $0.1 - b.cy) - b.r) < tol }
-        if let r = kasaFit(inl) { b = LimbCircle(cx: r.cx, cy: r.cy, r: r.r, inliers: inl.count) }
-        // Mittelpunkt muss auf der hellen Seite liegen
-        let mx = inl.map { $0.0 }.reduce(0, +) / Double(inl.count), my = inl.map { $0.1 }.reduce(0, +) / Double(inl.count)
-        let dx = b.cx - mx, dy = b.cy - my, l = hypot(dx, dy)
-        let probe = (mx + dx / l * 20, my + dy / l * 20)
-        if probe.0 >= 0, probe.1 >= 0, probe.0 < Double(w), probe.1 < Double(h), img.sample(probe.0, probe.1) < det.threshold * 0.5 {
-            return nil
+        // Mehrere Durchläufe mit festen Startwerten, Median-Kreis: reproduzierbar und robust gegen Ausreißer-Durchläufe
+        let base = UInt64(pts.count) &* 0x9E3779B97F4A7C15 &+ UInt64(w * 31 + h) &+ (UInt64(ProcessInfo.processInfo.environment["SR_SEED"] ?? "") ?? 0)
+        let nRuns = Int(ProcessInfo.processInfo.environment["SR_RUNS"] ?? "") ?? 7
+        let runs = (0..<nRuns).compactMap { ransac(seed: base &+ UInt64($0) &* 0xD1B54A32D192ED03) }
+        guard runs.count >= (nRuns + 1) / 2 else { return [] }
+        let sorted = runs.sorted { $0.0.r < $1.0.r }
+        let mid = sorted.count / 2
+        // Reihenfolge: Median, dann abwechselnd nach außen; fast gleiche Kreise nur einmal
+        var order = [mid]
+        for k in 1..<max(1, sorted.count) { if mid - k >= 0 { order.append(mid - k) }; if mid + k < sorted.count { order.append(mid + k) } }
+        var out: [LimbCircle] = []
+        for i in order {
+            let (b, inl) = sorted[i]
+            if out.contains(where: { abs($0.r - b.r) < 0.5 && hypot($0.cx - b.cx, $0.cy - b.cy) < 0.5 }) { continue }
+            // Mittelpunkt muss auf der hellen Seite liegen
+            let mx = inl.map { $0.0 }.reduce(0, +) / Double(inl.count), my = inl.map { $0.1 }.reduce(0, +) / Double(inl.count)
+            let dx = b.cx - mx, dy = b.cy - my, l = hypot(dx, dy)
+            let probe = (mx + dx / l * 20, my + dy / l * 20)
+            if probe.0 >= 0, probe.1 >= 0, probe.0 < Double(w), probe.1 < Double(h), img.sample(probe.0, probe.1) < det.threshold * 0.5 {
+                if i == mid { return [] }
+                continue
+            }
+            out.append(b)
         }
-        return b
+        if ProcessInfo.processInfo.environment["SR_DEBUG"] != nil { print("limb pts \(pts.count) candidates \(out.map { Int($0.r) })") }
+        return out
     }
 
     static func circleFrom(_ a: (Double, Double), _ b: (Double, Double), _ c: (Double, Double)) -> (cx: Double, cy: Double, r: Double)? {
@@ -542,7 +564,8 @@ public enum MoonAnalyzer {
                         check: () throws -> Void) throws -> AnalysisResult {
         let f = Double(factor)
         step("Mondrand wird vermessen", 0.2)
-        let limb = fitLimb(img, det: detection)
+        let limbs = limbCandidates(img, det: detection)
+        let limb = limbs.first
         var kmPerPx: Double?
         if let l = limb {
             kmPerPx = moonRadiusKm / (l.r * f)
@@ -580,10 +603,18 @@ public enum MoonAnalyzer {
                 step("Mondlage wird bestimmt", 0.5)
                 pose0 = MoonRegistration.register(craters: merged, limb: l, width: img.width, height: img.height, ephemeris: nil,
                                                   log: info, isCancelled: { false })
+                // nicht eindeutig: mit den anderen gemessenen Randkreisen erneut versuchen (kostet nur in diesem Fall Zeit)
+                for (k, alt) in limbs.dropFirst().prefix(4).enumerated() where pose0 == nil {
+                    try check()
+                    step("Mondlage wird erneut bestimmt (Versuch \(k + 2))", 0.5)
+                    pose0 = MoonRegistration.register(craters: merged, limb: alt, width: img.width, height: img.height, ephemeris: nil,
+                                                      log: info, isCancelled: { false })
+                }
                 try check()
                 if let p = pose0 {
                     step("Aufnahmedatum wird aus dem Bild berechnet", 0.55)
-                    estimate = MoonDateEstimator.estimate(pose: p, image: img, threshold: detection.threshold, fileNameDate: fileDate)
+                    let obs: (lat: Double, lon: Double)? = settings.observerLatitude.flatMap { la in settings.observerLongitude.map { (la, $0) } }
+                    estimate = MoonDateEstimator.estimate(pose: p, image: img, threshold: detection.threshold, fileNameDate: fileDate, observer: obs)
                     if let est = estimate {
                         let df = DateFormatter(); df.locale = Locale(identifier: "de_DE"); df.dateStyle = .long; df.timeStyle = .short
                         info(String(format: "Datum aus dem Bild: %@ (± %.0f h, %@)%@", df.string(from: est.best.date), est.timeUncertaintyHours,
@@ -696,15 +727,24 @@ public enum MoonAnalyzer {
                 if let rb = RobbinsCatalog.match(lat: c.lat, lon: c.lon, diameterKm: c.d, sizeTolerance: 0.3) {
                     facts.append(InfoFact("Vermessener Durchmesser", String(format: "%.1f km (Robbins 2018)", rb.d).replacingOccurrences(of: ".", with: ",")))
                 }
+                var layman = cls.layman
+                let period = MoonRegistration.craterAges()[c.name].flatMap { MoonRegistration.germanPeriod($0) }
+                if let per = period {
+                    facts.append(InfoFact("Geologisches Alter", "\(per.name) (\(per.age))"))
+                    layman += " " + per.text
+                }
                 if let o = MoonRegistration.germanOrigin(c.origin) { facts.append(InfoFact("Namensgeber", o)) }
                 if c.isSatellite, let main = c.name.split(separator: " ").dropLast().joined(separator: " ") as String?, !main.isEmpty {
                     facts.append(InfoFact("Art", "Nebenkrater von \(main) (IAU-Bezeichnung)"))
                 }
                 let view = rad2deg(acos(min(1, z)))
                 if view > 45 { facts.append(InfoFact("Perspektive", String(format: "schräg gesehen (ca. %.0f° Blickwinkel)", view))) }
-                facts.append(InfoFact("Quelle", RobbinsCatalog.isAvailable ? "IAU / USGS Gazetteer; Robbins Lunar Crater Database (2018)" : "IAU / USGS Gazetteer of Planetary Nomenclature"))
-                let inf = ObjectInfo(title: c.name, subtitle: cls.name, facts: facts,
-                                     scientific: cls.scientific, latest: cls.latest, layman: cls.layman)
+                var sources = ["IAU / USGS Gazetteer"]
+                if RobbinsCatalog.isAvailable { sources.append("Robbins Lunar Crater Database (2018)") }
+                if period != nil { sources.append("USGS Unified Geologic Map of the Moon (2020)") }
+                facts.append(InfoFact("Quelle", sources.joined(separator: "; ")))
+                let inf = ObjectInfo(title: c.name, subtitle: period.map { "\(cls.name), \($0.name.lowercased())" } ?? cls.name, facts: facts,
+                                     scientific: cls.scientific, latest: cls.latest, layman: layman)
                 objs.append(FoundObject(id: "crater-\(c.name)", label: c.name, type: .moonCrater, x: x * f, y: y * f,
                                         radius: r * f, number: nil, drawCircle: false, info: inf, confidence: 0.9, ra: nil, dec: nil))
             }
@@ -779,6 +819,11 @@ public enum MoonAnalyzer {
             facts.append(InfoFact("Mondalter", String(format: "%.1f Tage", e.ageDays).replacingOccurrences(of: ".", with: ",")))
             facts.append(InfoFact("Entfernung zur Erde", String(format: "%.0f km", e.distanceKm)))
             facts.append(InfoFact("Sonnen-Colongitude", String(format: "%.1f°", e.colongitude).replacingOccurrences(of: ".", with: ",")))
+            if let la = settings.observerLatitude, let lo = settings.observerLongitude {
+                let a = e.altitudes(latitude: la, longitude: lo)
+                facts.append(InfoFact("Mondhöhe am Beobachtungsort", String(format: "%.0f° über dem Horizont", a.moon).replacingOccurrences(of: "-", with: "−")))
+                if a.moon < 0 { warn(String(format: "Der Mond stand zum angegebenen Zeitpunkt am Beobachtungsort unter dem Horizont (%.0f°) – bitte Datum und Uhrzeit prüfen.", a.moon)) }
+            }
         }
         if let p = pose {
             let se = p.subEarth
@@ -849,5 +894,18 @@ public enum MoonAnalyzer {
                     "Schwerefeldmessungen der GRAIL-Mission (2012) zeigten unter vielen Becken Massenkonzentrationen (Mascons) und eine stark zerrüttete Kruste.",
                     "Ein riesiges Einschlagbecken – so groß, dass ganze Länder hineinpassen würden.")
         }
+    }
+}
+
+/// Kleiner, reproduzierbarer Zufallsgenerator (für RANSAC)
+struct SplitMix64: RandomNumberGenerator {
+    var state: UInt64
+    init(seed: UInt64) { state = seed }
+    mutating func next() -> UInt64 {
+        state &+= 0x9E3779B97F4A7C15
+        var z = state
+        z = (z ^ (z >> 30)) &* 0xBF58476D1CE4E5B9
+        z = (z ^ (z >> 27)) &* 0x94D049BB133111EB
+        return z ^ (z >> 31)
     }
 }

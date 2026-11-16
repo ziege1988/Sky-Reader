@@ -38,6 +38,8 @@ public struct MoonDateEstimate: Sendable {
     public var timeUncertaintyHours: Double
     /// Suche auf das Datum aus dem Dateinamen beschränkt
     public var usedFileNameDate: Bool
+    /// Beobachtungsort berücksichtigt (Mond über dem Horizont)
+    public var usedObserver: Bool = false
 }
 
 public enum MoonDateEstimator {
@@ -111,6 +113,7 @@ public enum MoonDateEstimator {
     ///   - range: Suchzeitraum ohne Dateinamen-Datum
     public static func search(librationLat: Double, librationLon: Double, colongitude: Double?, colongitudeSigma: Double,
                               fileNameDate: FileNameDate.Result? = nil,
+                              observer: (lat: Double, lon: Double)? = nil,
                               range: ClosedRange<Date> = Date(timeIntervalSince1970: 946_684_800)...Date(),
                               isCancelled: () -> Bool = { false }) -> MoonDateEstimate? {
         let sl = librationSigma
@@ -124,6 +127,12 @@ public enum MoonDateEstimator {
                 var d = e.colongitude - col
                 d = (d + 540).truncatingRemainder(dividingBy: 360) - 180
                 c += pow(d / sc, 2)
+            }
+            // Beobachtungsort: Der Mond muss über dem Horizont gestanden haben; Aufnahmen bei Tageslicht sind seltener
+            if let o = observer {
+                let a = e.altitudes(latitude: o.lat, longitude: o.lon)
+                if a.moon < 2 { c += 25 + (2 - a.moon) * 0.5 }
+                if a.sun > 0 { c += 2 }
             }
             return c
         }
@@ -198,11 +207,12 @@ public enum MoonDateEstimator {
         return MoonDateEstimate(best: best, alternatives: alts, quality: good ? .good : .uncertain,
                                 measuredLibrationLat: librationLat, measuredLibrationLon: librationLon,
                                 measuredColongitude: colongitude, timeUncertaintyHours: hours,
-                                usedFileNameDate: fileNameDate != nil)
+                                usedFileNameDate: fileNameDate != nil, usedObserver: observer != nil)
     }
 
     /// Vollständige Schätzung aus einer bestimmten Mondlage und dem Bild.
     public static func estimate(pose: MoonPose, image: GrayImage, threshold: Float, fileNameDate: FileNameDate.Result?,
+                                observer: (lat: Double, lon: Double)? = nil,
                                 isCancelled: () -> Bool = { false }) -> MoonDateEstimate? {
         let se = pose.subEarth
         let sun = measureSubSolarLongitude(pose: pose, image: image, threshold: threshold)
@@ -217,6 +227,6 @@ public enum MoonDateEstimator {
         // Ohne Terminator und ohne Dateinamen-Datum ist keine sinnvolle Schätzung möglich
         if colong == nil && fileNameDate == nil { return nil }
         return search(librationLat: se.lat, librationLon: se.lon, colongitude: colong, colongitudeSigma: sigma,
-                      fileNameDate: fileNameDate, isCancelled: isCancelled)
+                      fileNameDate: fileNameDate, observer: observer, isCancelled: isCancelled)
     }
 }

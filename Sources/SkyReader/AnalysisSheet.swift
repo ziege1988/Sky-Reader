@@ -28,6 +28,16 @@ struct AnalysisSheet: View {
                 .progressViewStyle(.linear)
                 .tint(failed ? Theme.error : done ? Theme.success : Theme.accent)
                 .padding(.horizontal, 20)
+                .animation(.linear(duration: 0.4), value: state.progress)
+            if state.isBusy {
+                HStack {
+                    Text(state.currentStep).lineLimit(1)
+                    Spacer()
+                    Text(state.etaText).monospacedDigit()
+                }
+                .font(.system(size: 11)).foregroundStyle(Theme.textSecondary)
+                .padding(.horizontal, 20).padding(.top, 6)
+            }
 
             if let q = state.moonQuestion {
                 MoonDatePanel(question: q).padding(.horizontal, 20).padding(.top, 14)

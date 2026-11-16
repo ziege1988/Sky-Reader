@@ -57,6 +57,25 @@ struct SettingsView: View {
         } header: { Text("Mond") }
 
         Section {
+            Toggle("Beobachtungsort verwenden", isOn: $state.useObserver)
+            if state.useObserver {
+                TextField("Name", text: $state.observerName, prompt: Text("z. B. Garten, Sternwarte …"))
+                HStack {
+                    TextField("Breite", value: $state.observerLat, format: .number.precision(.fractionLength(0...4)))
+                    Text("° N").foregroundStyle(Theme.textSecondary)
+                    Spacer(minLength: 20)
+                    TextField("Länge", value: $state.observerLon, format: .number.precision(.fractionLength(0...4)))
+                    Text("° O").foregroundStyle(Theme.textSecondary)
+                }
+                if !(-90...90).contains(state.observerLat) || !(-180...180).contains(state.observerLon) {
+                    Label("Breite −90…90°, Länge −180…180° (West negativ)", systemImage: "exclamationmark.triangle").foregroundStyle(Theme.warning).font(.caption)
+                }
+            }
+            Text("Mit dem Ort berücksichtigt die Datumsberechnung nur Zeiten, zu denen der Mond bei dir über dem Horizont stand – das macht die vorgeschlagene Uhrzeit deutlich treffsicherer. Außerdem zeigt die Analyse die Mondhöhe und warnt, wenn ein eingegebener Zeitpunkt nicht passen kann. Der Name wird im Tagebuch als Ort vorbelegt. Koordinaten findest du z. B. in Apple Karten: Rechtsklick auf den Ort → Koordinaten kopieren.")
+                .font(.caption).foregroundStyle(Theme.textSecondary)
+        } header: { Text("Beobachtungsort") }
+
+        Section {
             Picker("Objektdichte", selection: $state.density) {
                 ForEach(DeepSkyCatalog.Density.allCases, id: \.self) { Text($0.germanName).tag($0) }
             }

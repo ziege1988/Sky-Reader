@@ -58,9 +58,68 @@ final class AppState: ObservableObject {
     @AppStorage("labelScale") var labelScale: Double = 1.0
     @AppStorage("showLabels") var showLabels = true
     @AppStorage("askMoonDate") var askMoonDate = true
+    @AppStorage("useObserver") var useObserver = false
+    @AppStorage("observerName") var observerName = ""
+    @AppStorage("observerLat") var observerLat: Double = 51.0
+    @AppStorage("observerLon") var observerLon: Double = 10.0
 
     private var cancelFlag: CancelFlag?
     private var startedAt = Date()
+
+    // MARK: Restzeit-Schätzung
+    /// Text unter dem Fortschrittsbalken, z. B. „noch ca. 12 s“
+    @Published var etaText = ""
+    private var stepProgress: Double = 0
+    private var pausedTotal: TimeInterval = 0
+    private var pauseStart: Date?
+    private var etaKind = "sky"
+    private var etaTask: Task<Void, Never>?
+
+    /// Reine Rechenzeit (ohne Warten auf die Datumsabfrage)
+    private var activeElapsed: TimeInterval {
+        Date().timeIntervalSince(startedAt) - pausedTotal - (pauseStart.map { Date().timeIntervalSince($0) } ?? 0)
+    }
+
+    /// Erwartete Dauer aus den letzten Analysen derselben Art (Median), sonst Erfahrungswert
+    private func expectedDuration(_ kind: String) -> TimeInterval {
+        let list = (UserDefaults.standard.array(forKey: "durations.\(kind)") as? [Double]) ?? []
+        guard !list.isEmpty else { return kind == "moon" ? 15 : 20 }
+        return list.sorted()[list.count / 2]
+    }
+
+    private func recordDuration() {
+        let d = activeElapsed
+        guard d > 0.5 else { return }
+        var list = (UserDefaults.standard.array(forKey: "durations.\(etaKind)") as? [Double]) ?? []
+        list.append(d)
+        UserDefaults.standard.set(Array(list.suffix(7)), forKey: "durations.\(etaKind)")
+    }
+
+    private func startETA() {
+        etaTask?.cancel()
+        etaKind = "sky"; pausedTotal = 0; pauseStart = nil; stepProgress = 0; etaText = ""
+        etaTask = Task { @MainActor [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: 400_000_000)
+                guard let self, self.isBusy else { break }
+                self.updateETA()
+            }
+        }
+    }
+
+    private func updateETA() {
+        if moonQuestion != nil { etaText = "wartet auf deine Eingabe"; return }
+        let expected = expectedDuration(etaKind)
+        let t = activeElapsed
+        // Zeitbasierter Fortschritt, nie hinter dem gemeldeten Arbeitsschritt, und nie ganz voll vor dem Ende
+        let timeP = min(0.95, t / max(expected, 1))
+        progress = max(stepProgress, timeP)
+        let remaining = expected - t
+        if remaining > 90 { etaText = String(format: "noch ca. %.0f min", (remaining / 60).rounded()) }
+        else if remaining > 4 { etaText = "noch ca. \(Int((remaining / 5).rounded() * 5)) s" }
+        else if remaining > -10 { etaText = "gleich fertig …" }
+        else { etaText = "dauert diesmal etwas länger …" }
+    }
 
     var analysisSettings: AnalysisSettings {
         var s = AnalysisSettings()
@@ -74,6 +133,7 @@ final class AppState: ObservableObject {
         if showDark { c.insert(.darkNebula) }
         if showComet { c.insert(.comet) }
         s.categories = c
+        if useObserver { s.observerLatitude = observerLat; s.observerLongitude = observerLon }
         return s
     }
 
@@ -105,6 +165,7 @@ final class AppState: ObservableObject {
         phase = .loading
         currentStep = "Bild wird geladen"
         startedAt = Date()
+        startETA()
         showAnalysisSheet = true
         append(.step, "Bild wird geladen: \(url.lastPathComponent)", progress: 0.01)
         let flag = CancelFlag()
@@ -134,6 +195,8 @@ final class AppState: ObservableObject {
                 await MainActor.run {
                     guard !flag.isCancelled else { return }
                     self.pendingResult = res
+                    self.recordDuration()
+                    self.etaText = ""
                     self.progress = 1
                     self.currentStep = "Analyse abgeschlossen"
                     self.phase = .finished
@@ -153,6 +216,7 @@ final class AppState: ObservableObject {
     nonisolated var askMoonDateEnabled: Bool { UserDefaults.standard.object(forKey: "askMoonDate") as? Bool ?? true }
 
     func presentMoonQuestion(_ q: MoonDateQuestion, box: AnswerBox) {
+        pauseStart = Date()
         moonAnswerBox = box
         moonQuestion = q
     }
@@ -160,6 +224,7 @@ final class AppState: ObservableObject {
     /// Antwort aus dem Datums-Popup
     func answerMoonQuestion(_ a: MoonDateAnswer) {
         if case .known(let d) = a { lastMoonDate = d }
+        if let p = pauseStart { pausedTotal += Date().timeIntervalSince(p); pauseStart = nil }
         moonQuestion = nil
         if let b = moonAnswerBox { b.answer = a; b.semaphore.signal() }
         moonAnswerBox = nil
@@ -171,7 +236,8 @@ final class AppState: ObservableObject {
     private func receive(_ e: LogEntry) {
         log.append(e)
         if e.level == .step { currentStep = e.message }
-        if let p = e.progress { progress = max(progress, p) }
+        if e.message.hasPrefix("Mondoberfläche erkannt") || e.message.hasPrefix("Mondrand wird vermessen") { etaKind = "moon" }
+        if let p = e.progress { stepProgress = max(stepProgress, p); progress = max(progress, p) }
     }
 
     private func append(_ level: LogEntry.Level, _ msg: String, progress p: Double? = nil) {
