@@ -53,7 +53,7 @@ public enum MoonDateEstimator {
     public static func measureSubSolarLongitude(pose: MoonPose, image img: GrayImage, threshold: Float) -> (lon: Double, halfWidth: Double)? {
         var pts: [Vec3] = []
         var lit: [Bool] = []
-        let litLevel = threshold * 0.4
+        let litLevel = threshold * 0.18
         var lat = -86.0
         while lat <= 86 {
             var lon = -100.0
