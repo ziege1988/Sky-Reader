@@ -773,22 +773,15 @@ public enum MoonAnalyzer {
                                         confidence: 0.9, ra: nil, dec: nil))
             }
             // Erkannte Krater ohne Eigennamen (nur bei „Alle“): nummeriert
-            // Mit Robbins-Datenbank: nur Krater übernehmen, die dort vermessen sind (sonst vermutlich Fehlerkennung),
-            // und sie mit Lage und Durchmesser aus dem Katalog beschreiben.
+            // Erkannte Krater ohne IAU-Namen (nur bei „Alle“): nummeriert; mit Robbins-Datenbank bestätigt und vermessen
             if settings.craterMode == .all {
-                var n = 0, rejected = 0
-                let robbins = RobbinsCatalog.isAvailable
+                var n = 0, confirmed = 0
                 for c in craters where !named.contains(where: { hypot($0.1 - c.x, $0.2 - c.y) < max($0.3, c.r) * 0.7 }) {
-                    var match: RobbinsCatalog.Crater?
-                    var sel: (lat: Double, lon: Double)?
-                    if robbins, let s = p.unproject(x: c.x, y: c.y) {
-                        sel = s
-                        match = RobbinsCatalog.match(lat: s.lat, lon: s.lon, diameterKm: 2 * c.r * p.kmPerPixel)
-                        if match == nil { rejected += 1; continue }
-                    }
                     n += 1
                     var o = numberedCrater(c, n: n, f: f, kmPerPx: kmPerPx, limb: limb)
-                    if let m = match, let s = sel {
+                    if let s = p.unproject(x: c.x, y: c.y),
+                       let m = RobbinsCatalog.match(lat: s.lat, lon: s.lon, diameterKm: 2 * c.r * p.kmPerPixel) {
+                        confirmed += 1
                         o.info.facts.removeAll { $0.label == "Geschätzter Durchmesser" || $0.label == "Name" }
                         o.info.facts.insert(InfoFact("Durchmesser", String(format: "%.1f km (Robbins 2018)", m.d).replacingOccurrences(of: ".", with: ",")), at: 1)
                         o.info.facts.append(InfoFact("Selenografische Lage", String(format: "%.2f° %@, %.2f° %@", abs(Double(m.lat)), m.lat >= 0 ? "N" : "S", abs(Double(m.lon)), m.lon >= 0 ? "O" : "W").replacingOccurrences(of: ".", with: ",")))
@@ -796,11 +789,13 @@ public enum MoonAnalyzer {
                         let cls = craterClass(Double(m.d))
                         o.info.subtitle = cls.name
                         o.info.scientific = cls.scientific; o.info.latest = cls.latest; o.info.layman = cls.layman
-                        _ = s
+                    } else if RobbinsCatalog.isAvailable {
+                        o.info.facts.append(InfoFact("Robbins-Katalog", "kein passender Eintrag gefunden – evtl. Fehlerkennung oder ungenaue Lage"))
+                        o.confidence = min(o.confidence, 0.4)
                     }
                     objs.append(o)
                 }
-                if rejected > 0 { info("\(rejected) Kandidaten ohne Gegenstück in der Robbins-Datenbank verworfen.") }
+                if RobbinsCatalog.isAvailable && n > 0 { info("Robbins-Datenbank: \(confirmed) von \(n) unbenannten Kratern bestätigt und vermessen.") }
             }
         } else {
             for (i, c) in craters.enumerated() { objs.append(numberedCrater(c, n: i + 1, f: f, kmPerPx: kmPerPx, limb: limb)) }

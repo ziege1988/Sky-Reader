@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.7.0
+- **Robbins Lunar Crater Database (2018)** eingebunden: 212.149 vermessene Mondkrater ab 3 km (2,5 MB).
+  - Benannte Krater zeigen zusätzlich den genau vermessenen Durchmesser.
+  - Bei „Alle Krater“ werden erkannte Krater ohne IAU-Namen mit dem Katalog abgeglichen: Bestätigte Krater erhalten exakten Durchmesser und selenografische Lage, unbestätigte werden als mögliche Fehlerkennung gekennzeichnet (nicht gelöscht).
+- Katalog-Build: selbst bereitgestellte Quelldateien werden aus dem Vorab-Release „katalog-quellen“ geladen.
+
 ## 1.6.0
 - **Geologisches Alter der Krater** aus der USGS-Karte „Unified Geologic Map of the Moon“ (2020, gemeinfrei): Kopernikanisch, Eratosthenisch, Imbrisch, Nektarisch oder Prä-Nektarisch – mit Altersangabe und verständlicher Erklärung in der Beschreibung.
 - **Beobachtungsort** (Einstellungen → Analyse): Die Datumsberechnung berücksichtigt nur Zeiten, zu denen der Mond am Ort über dem Horizont stand; die Analyse zeigt die Mondhöhe und warnt bei unmöglichen Zeitpunkten. Der Ortsname wird im Tagebuch vorbelegt.

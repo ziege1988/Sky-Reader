@@ -125,11 +125,11 @@ public enum RobbinsCatalog {
     public static var isAvailable: Bool { !all().isEmpty }
 
     /// Bester Katalogkrater nahe (lat, lon) mit passendem Durchmesser (km); Toleranz relativ zum Durchmesser
-    public static func match(lat: Double, lon: Double, diameterKm: Double, sizeTolerance: Double = 0.5) -> Crater? {
+    public static func match(lat: Double, lon: Double, diameterKm: Double, sizeTolerance: Double = 0.5, maxDistFactor: Double = 0.7) -> Crater? {
         let list = all()
         guard !list.isEmpty else { return nil }
         let kmPerDeg = MoonAnalyzer.moonRadiusKm * .pi / 180
-        let searchKm = max(3, diameterKm * 0.6)
+        let searchKm = max(5, diameterKm * maxDistFactor * 2)
         let dLat = searchKm / kmPerDeg
         // binäre Suche nach der Breite
         var lo = 0, hi = list.count
@@ -142,7 +142,7 @@ public enum RobbinsCatalog {
             let cd = Double(c.d)
             guard abs(cd - diameterKm) <= sizeTolerance * max(cd, diameterKm) else { continue }
             let distKm = acos(max(-1, min(1, Vec3(ra: Double(c.lon), dec: Double(c.lat)).dot(p)))) * MoonAnalyzer.moonRadiusKm
-            guard distKm <= max(3, 0.5 * max(cd, diameterKm)) else { continue }
+            guard distKm <= max(5, maxDistFactor * max(cd, diameterKm)) else { continue }
             let score = distKm / max(cd, 1) + abs(Foundation.log(cd / max(diameterKm, 0.1)))
             if best == nil || score < best!.1 { best = (c, score) }
         }
