@@ -685,7 +685,23 @@ def discover_robbins():
 def load_robbins(cache, source_dir, min_d=3.0):
     """Robbins (2018) Lunar Crater Database – alle Krater ab min_d km als kompakte Binärdatei."""
     raw = None
-    urls = ROBBINS_URLS + [u for u in discover_robbins() if "robbins" in u.lower()]
+    # 1. selbst bereitgestellte Datei (Release „katalog-quellen“ → --source-dir), beliebiger Dateiname mit „robbins“
+    if source_dir and os.path.isdir(source_dir):
+        for fn in sorted(os.listdir(source_dir)):
+            if "robbins" in fn.lower() or "crater_database" in fn.lower():
+                with open(os.path.join(source_dir, fn), "rb") as f:
+                    raw = f.read()
+                log(f"  Robbins aus bereitgestellter Datei: {fn} ({len(raw) / 1e6:.0f} MB)")
+                if raw[:2] == b"PK":
+                    z = zipfile.ZipFile(io.BytesIO(raw))
+                    names = [n for n in z.namelist() if n.lower().endswith(".csv")]
+                    log(f"  ZIP-Inhalt: {z.namelist()[:10]}")
+                    raw = z.read(max(names, key=lambda n: z.getinfo(n).file_size)) if names else None
+                elif raw[:2] == b"\x1f\x8b":
+                    raw = gzip.decompress(raw)
+                if raw:
+                    break
+    urls = [] if raw else ROBBINS_URLS + [u for u in discover_robbins() if "robbins" in u.lower()]
     for u in urls:
         raw = fetch(u, cache, "robbins_2018" + os.path.splitext(u)[1], source_dir, timeout=900, retries=2)
         if raw:

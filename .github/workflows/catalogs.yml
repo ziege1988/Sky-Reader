@@ -27,8 +27,15 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
+      - name: Selbst bereitgestellte Quelldateien laden (Release „katalog-quellen“)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p quellen
+          gh release download katalog-quellen -D quellen -R "${GITHUB_REPOSITORY}" || echo "Keine bereitgestellten Quelldateien"
+          ls -la quellen
       - name: Kataloge erzeugen
-        run: python3 Tools/build_catalogs.py --out Resources/Catalogs --cache .catalog-cache
+        run: python3 Tools/build_catalogs.py --out Resources/Catalogs --cache .catalog-cache --source-dir quellen
       - name: Ergebnis committen
         run: |
           ls -la Resources/Catalogs
