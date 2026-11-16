@@ -69,7 +69,8 @@ enum ExportRenderer {
         }
         if options.showDescription {
             let panel = CGRect(x: L.imageRect.maxX, y: 0, width: L.size.width - L.imageRect.maxX, height: L.size.height)
-            drawPanel(in: ctx, rect: panel, result: result, objects: visible, options: options)
+            drawPanel(in: ctx, rect: panel, result: result, objects: visible, options: options,
+                      removed: ghostHidden ? Set(hidden) : [])
         } else {
             drawSignature(in: ctx, corner: CGPoint(x: L.imageRect.maxX, y: L.imageRect.maxY), height: L.imageRect.height, onImage: true)
         }
@@ -78,7 +79,8 @@ enum ExportRenderer {
 
     // MARK: Beschreibungsspalte
 
-    static func drawPanel(in ctx: CGContext, rect: CGRect, result: AnalysisResult, objects: [FoundObject], options: ExportOptions) {
+    static func drawPanel(in ctx: CGContext, rect: CGRect, result: AnalysisResult, objects: [FoundObject], options: ExportOptions,
+                          removed: Set<String> = []) {
         // Hintergrund mit leichtem Plejaden-Verlauf
         let colors = [NSColor(Theme.panel).cgColor, NSColor(Theme.background).cgColor] as CFArray
         if let g = CGGradient(colorsSpace: CGColorSpace(name: CGColorSpace.sRGB), colors: colors, locations: [0, 1]) {
@@ -94,16 +96,18 @@ enum ExportRenderer {
         let textRect = CGRect(x: rect.minX + pad, y: rect.minY + pad, width: rect.width - 2 * pad, height: rect.height - 2 * pad - footerH)
         var base = rect.height / 44
         let minBase = rect.height / 110
-        var content = buildText(result: result, objects: objects, options: options, base: base)
+        var content = buildText(result: result, objects: objects, options: options, base: base, removed: removed)
         while base > minBase && measure(content, width: textRect.width) > textRect.height {
             base *= 0.93
-            content = buildText(result: result, objects: objects, options: options, base: base)
+            content = buildText(result: result, objects: objects, options: options, base: base, removed: removed)
         }
         drawText(content, in: textRect, ctx: ctx)
         drawSignature(in: ctx, corner: CGPoint(x: rect.maxX, y: rect.maxY), height: rect.height, onImage: false)
     }
 
-    static func buildText(result: AnalysisResult, objects: [FoundObject], options: ExportOptions, base: CGFloat) -> NSAttributedString {
+    /// - Parameter removed: nur Vorschau – entfernte Objekte erscheinen durchgestrichen an ihrer Position
+    static func buildText(result: AnalysisResult, objects: [FoundObject], options: ExportOptions, base: CGFloat,
+                          removed: Set<String> = []) -> NSAttributedString {
         let out = NSMutableAttributedString()
         let primary = NSColor(Theme.textPrimary), secondary = NSColor(Theme.textSecondary), accent = NSColor(Theme.accent)
         func para(_ spacing: CGFloat, after: CGFloat = 0) -> NSParagraphStyle {
@@ -129,7 +133,16 @@ enum ExportRenderer {
             add(result.summary.scientific, size: base * 0.8, color: primary.withAlphaComponent(0.85), after: base * 0.8)
         }
         var shownTexts = Set<String>()
-        for o in objects {
+        let listed = removed.isEmpty ? objects : result.objects
+        for o in listed {
+            if removed.contains(o.id) {
+                let red = OverlayLayout.removedColor
+                out.append(NSAttributedString(string: "✕ " + o.info.title + "  – wird nicht exportiert\n", attributes: [
+                    .font: NSFont.systemFont(ofSize: base * 0.8, weight: .medium), .foregroundColor: red.withAlphaComponent(0.85),
+                    .strikethroughStyle: NSUnderlineStyle.single.rawValue, .strikethroughColor: red,
+                    .paragraphStyle: para(base * 0.2, after: base * 0.5)]))
+                continue
+            }
             let dot = NSAttributedString(string: "● ", attributes: [.font: NSFont.systemFont(ofSize: base * 0.8), .foregroundColor: Theme.nsColor(for: o.type)])
             out.append(dot)
             add(o.info.title, size: base * 1.08, weight: .semibold, color: primary, after: base * 0.12)

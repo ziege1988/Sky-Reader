@@ -24,7 +24,7 @@ enum Theme {
         case .cluster: return glow
         case .darkNebula: return Color(red: 0.62, green: 0.66, blue: 0.74)
         case .comet: return Color(red: 0.498, green: 0.878, blue: 0.788)
-        case .moon: return Color(red: 1.0, green: 0.824, blue: 0.478)
+        case .moon: return accent   // Mondkrater: Fadenkreuz im Plejadenblau
         }
     }
 

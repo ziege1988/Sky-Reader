@@ -33,11 +33,10 @@ enum SelfTest {
             }
             SettingsView.initialTab = 0
 
-            state.showExport = true
-            try? await Task.sleep(nanoseconds: 2_500_000_000)
-            snapSheet(window, "06-export-dialog", out)
-            state.showExport = false
-            try? await Task.sleep(nanoseconds: 900_000_000)
+            await exportDialog(state: state, window: window, out: out, name: "06-export-dialog", hide: [])
+            if let r = state.result, r.objects.count > 3 {
+                await exportDialog(state: state, window: window, out: out, name: "06b-export-live-entfernt", hide: [r.objects[0].id, r.objects[3].id])
+            }
             exportSamples(state: state, out: out, prefix: "07-export")
 
             if let moon {
@@ -45,12 +44,28 @@ enum SelfTest {
                 state.finish()
                 try? await Task.sleep(nanoseconds: 1_500_000_000)
                 snap(window, "09-mond-ergebnis", out)
+                if let r = state.result, r.objects.count > 2 {
+                    state.selectedObjectID = r.objects[2].id
+                    try? await Task.sleep(nanoseconds: 900_000_000)
+                    snap(window, "09b-mond-krater-details", out)
+                    await exportDialog(state: state, window: window, out: out, name: "09c-mond-export-live", hide: [r.objects[1].id])
+                }
                 try? state.reportText().write(to: out.appendingPathComponent("report-mond.txt"), atomically: true, encoding: .utf8)
                 exportSamples(state: state, out: out, prefix: "10-mond-export")
             }
             print("SELFTEST: fertig – \(state.phaseText), \(state.result?.objects.count ?? 0) Objekte")
             NSApp.terminate(nil)
         }
+    }
+
+    static func exportDialog(state: AppState, window: NSWindow, out: URL, name: String, hide: Set<String>) async {
+        ExportView.initialHidden = hide
+        state.showExport = true
+        try? await Task.sleep(nanoseconds: 3_500_000_000)
+        snapSheet(window, name, out)
+        state.showExport = false
+        ExportView.initialHidden = []
+        try? await Task.sleep(nanoseconds: 1_000_000_000)
     }
 
     /// Bild laden, auf Ende warten, Analyse-Popup fotografieren

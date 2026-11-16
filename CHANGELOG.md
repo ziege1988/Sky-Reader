@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.2.0
+- Mond: Krater werden mit einem kleinen blauen Fadenkreuz in der Mitte und ihrer Nummer markiert (keine Kreise)
+- Export mit Live-Vorschau: großer Dialog, zoom- und verschiebbar; jede Änderung ist sofort im Bild und in der Beschreibung sichtbar
+- Entfernte Markierungen erscheinen in der Vorschau rot gestrichelt, ihre Bezeichnung und ihr Beschreibungsabsatz durchgestrichen („wird nicht exportiert“); abschaltbar für die exakte Endansicht
+- Hinweis mit „Rückgängig“ nach jedem Entfernen/Zurückholen; entfernte Objekte in der Liste durchgestrichen
+
 ## 1.1.0
 - Mond: deutlich genauere Kratererkennung. Die Sonnenrichtung wird aus Licht/Schatten-Paaren und dem beleuchteten Mondrand bestimmt; Krater werden als Paar aus Schatten und beleuchteter Innenwand erkannt.
 - Randnahe Krater werden als Ellipsen vermessen (Durchmesser entlang der langen Achse, Angabe des Blickwinkels)

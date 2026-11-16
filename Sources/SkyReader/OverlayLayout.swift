@@ -45,8 +45,21 @@ enum OverlayLayout {
             let size = CGSize(width: ts.width + 2 * pad, height: ts.height + (isNum ? 0 : 2))
             var best: (CGRect, CGPoint, CGFloat)?
             if isNum {
-                let rect = CGRect(x: c.x - size.width / 2, y: c.y - size.height / 2, width: size.width, height: size.height)
-                best = (rect, c, 0)
+                // Fadenkreuz in der Mitte, Nummer kollisionsfrei daneben
+                let arm = crosshairArm(fontSize)
+                for (k, a) in ([-45, 45, -135, 135, 0, 180, -90, 90] as [CGFloat]).enumerated() {
+                    let rad = a * .pi / 180
+                    let anchor = CGPoint(x: c.x + cos(rad) * (arm + 2), y: c.y + sin(rad) * (arm + 2))
+                    var origin = anchor
+                    if cos(rad) < -0.3 { origin.x -= size.width } else if abs(cos(rad)) <= 0.3 { origin.x -= size.width / 2 }
+                    if sin(rad) < -0.3 { origin.y -= size.height } else if abs(sin(rad)) <= 0.3 { origin.y -= size.height / 2 }
+                    let rect = CGRect(origin: origin, size: size)
+                    var penalty = CGFloat(k) * 0.5
+                    for p in placed { let i = p.intersection(rect); if !i.isNull { penalty += i.width * i.height } }
+                    if !bounds.contains(rect) { penalty += size.width * size.height }
+                    if best == nil || penalty < best!.2 { best = (rect, anchor, penalty) }
+                    if penalty < 1 { break }
+                }
             } else {
                 var angles: [CGFloat] = [-45, -135, 45, 135, 0, 180, -90, 90, -20, -160, 20, 160]
                 if r > min(bounds.width, bounds.height) * 0.3 {
@@ -85,10 +98,16 @@ enum OverlayLayout {
             }
             guard let b = best else { continue }
             placed.append(b.0)
+            if isNum { let arm = crosshairArm(fontSize); placed.append(CGRect(x: c.x - arm, y: c.y - arm, width: 2 * arm, height: 2 * arm)) }
             items.append(OverlayItem(object: o, center: c, radius: r, labelRect: b.0, anchor: b.1, color: Theme.nsColor(for: o.type)))
         }
         return items
     }
+
+    static func crosshairArm(_ fontSize: CGFloat) -> CGFloat { max(5, fontSize * 0.6) }
+
+    /// Farbe für Markierungen, die im Export entfernt werden
+    static let removedColor = NSColor(calibratedRed: 1.0, green: 0.42, blue: 0.42, alpha: 1)
 
     /// Zeichnet die Markierungen in einen CoreGraphics-Kontext (Ursprung oben links; Kontext muss geflippt sein)
     static func draw(_ items: [OverlayItem], in ctx: CGContext, lineWidth: CGFloat, fontSize: CGFloat, showLabels: Bool,
@@ -96,8 +115,9 @@ enum OverlayLayout {
         for it in items {
             let isHidden = hidden.contains(it.object.id)
             if isHidden && !ghostHidden { continue }
-            let alpha: CGFloat = isHidden ? 0.28 : 1
-            let col = it.color.withAlphaComponent(alpha)
+            // Entfernte Markierungen (nur Vorschau): rot gestrichelt, Bezeichnung durchgestrichen
+            let alpha: CGFloat = isHidden ? 0.9 : 1
+            let col = isHidden ? removedColor.withAlphaComponent(0.9) : it.color
             let sel = it.object.id == selected
             ctx.saveGState()
             if it.object.drawCircle {
@@ -121,24 +141,30 @@ enum OverlayLayout {
                     }
                 }
             }
+            let isNum = it.object.number != nil && !it.object.drawCircle
+            if isNum {
+                // Kleines Fadenkreuz in der Kratermitte (keine Kreise um Krater)
+                let arm = crosshairArm(fontSize) * (sel ? 1.25 : 1), gap = arm * 0.35
+                let c = it.center
+                ctx.setShadow(offset: .zero, blur: lineWidth * 2.5, color: NSColor.black.withAlphaComponent(0.9).cgColor)
+                ctx.setStrokeColor((sel ? NSColor(Theme.glow) : col).cgColor)
+                ctx.setLineWidth(max(1, lineWidth * (sel ? 1.3 : 0.9)))
+                if isHidden { ctx.setLineDash(phase: 0, lengths: [lineWidth * 2, lineWidth * 1.5]) }
+                for (dx, dy) in [(1.0, 0.0), (-1.0, 0.0), (0.0, 1.0), (0.0, -1.0)] {
+                    ctx.move(to: CGPoint(x: c.x + dx * gap, y: c.y + dy * gap))
+                    ctx.addLine(to: CGPoint(x: c.x + dx * arm, y: c.y + dy * arm))
+                }
+                ctx.strokePath()
+                ctx.setLineDash(phase: 0, lengths: [])
+            }
             ctx.restoreGState()
             guard showLabels || !it.object.drawCircle else { continue }
-            let isNum = it.object.number != nil && !it.object.drawCircle
             let f = font(size: fontSize * (sel ? 1.12 : 1), number: isNum)
-            if isNum {
-                ctx.saveGState()
-                ctx.setFillColor(NSColor.black.withAlphaComponent(0.55 * alpha).cgColor)
-                let bg = CGPath(roundedRect: it.labelRect, cornerWidth: it.labelRect.height / 2, cornerHeight: it.labelRect.height / 2, transform: nil)
-                ctx.addPath(bg); ctx.fillPath()
-                ctx.setStrokeColor(col.withAlphaComponent(sel ? 1 : 0.7 * alpha).cgColor)
-                ctx.setLineWidth(max(1, lineWidth * (sel ? 1.2 : 0.6)))
-                ctx.addPath(bg); ctx.strokePath()
-                ctx.restoreGState()
-            }
             let shadow = NSShadow()
-            shadow.shadowColor = NSColor.black.withAlphaComponent(0.9 * alpha)
-            shadow.shadowBlurRadius = fontSize * 0.25
-            let attrs: [NSAttributedString.Key: Any] = [.font: f, .foregroundColor: col, .shadow: shadow]
+            shadow.shadowColor = NSColor.black.withAlphaComponent(0.95)
+            shadow.shadowBlurRadius = fontSize * 0.3
+            var attrs: [NSAttributedString.Key: Any] = [.font: f, .foregroundColor: (sel && isNum) ? NSColor(Theme.glow) : col, .shadow: shadow]
+            if isHidden { attrs[.strikethroughStyle] = NSUnderlineStyle.single.rawValue; attrs[.strikethroughColor] = removedColor }
             let s = NSAttributedString(string: it.object.label, attributes: attrs)
             let ts = s.size()
             let origin = CGPoint(x: it.labelRect.midX - ts.width / 2, y: it.labelRect.midY - ts.height / 2)
