@@ -1,5 +1,8 @@
 # Changelog
 
+## 1.8.0
+- **Genauere Kraterbeschriftung bei Mondbildern mit Rand**: Nach der Zuordnung wird die Mondlage direkt am Foto nachjustiert. Für alle Katalogkrater ab 15 km wird geprüft, ob an der vorhergesagten Stelle ein Kraterwall liegt; Mondradius und Drehung werden so eingestellt, dass möglichst viele Wälle übereinstimmen. Besonders weit vom sichtbaren Mondrand entfernte Krater (z. B. Cleomedes, Geminus, Endymion, Hercules) sitzen jetzt deutlich genauer.
+
 ## 1.7.0
 - **Robbins Lunar Crater Database (2018)** eingebunden: 212.149 vermessene Mondkrater ab 3 km (2,5 MB).
   - Benannte Krater zeigen zusätzlich den genau vermessenen Durchmesser.

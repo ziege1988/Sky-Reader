@@ -247,6 +247,82 @@ public enum MoonAnalyzer {
         return out
     }
 
+    /// Mondlage am Bild selbst nachschärfen: Für alle Katalogkrater ab 15 km wird an der vorhergesagten Stelle gemessen,
+    /// ob dort ein Kraterwall liegt (Helligkeitssprung quer zum Rand, randnah als Ellipse). Radius (bei festem Randpunkt)
+    /// und Drehung werden so justiert, dass die Summe dieser Wall-Signale maximal wird. Unabhängig von der Kratererkennung.
+    public static func refinePoseByRims(_ pose: MoonPose, image input: GrayImage, limb: LimbCircle) -> (MoonPose, Double, Double) {
+        let (img0, f) = input.limited(maxDimension: 1700)
+        let k = 1.0 / Double(f)   // Analysebild → verkleinertes Bild
+        let im = img0.boxBlurred(radius: 1)
+        let w = Double(img0.width), h = Double(img0.height)
+        let cat = MoonRegistration.catalog().filter { $0.d >= 15 && abs($0.lon) < 100 }
+        let vecs = cat.map { Vec3(ra: $0.lon, dec: $0.lat) }
+        // fester Randpunkt (nächster Randpunkt zur Bildmitte) wie in der Registrierung
+        let mx = Double(input.width) / 2, my = Double(input.height) / 2
+        let nx0 = mx - limb.cx, ny0 = my - limb.cy, nl = max(hypot(nx0, ny0), 1e-9)
+        let ex = limb.cx + nx0 / nl * limb.r, ey = limb.cy + ny0 / nl * limb.r
+        func evidence(_ p: MoonPose) -> Double {
+            var total = 0.0
+            for (i, c) in cat.enumerated() {
+                let v = p.cameraVector(vecs[i])   // bereits gespiegelt, wie in project()
+                guard v.z > 0.25 else { continue }
+                let cx = (p.cx + p.radius * v.x) * k, cy = (p.cy - p.radius * v.y) * k
+                let r = c.d / 2 / p.kmPerPixel * k
+                guard r >= 4, cx > r + 3, cy > r + 3, cx < w - r - 3, cy < h - r - 3 else { continue }
+                // radiale Richtung auf der Scheibe → Verkürzung (Ellipse)
+                let rx = v.x, ry = -v.y, rl = hypot(rx, ry)
+                let nxr = rl > 1e-6 ? rx / rl : 1, nyr = rl > 1e-6 ? ry / rl : 0
+                let tx = -nyr, ty = nxr
+                let d = max(1.5, r * 0.08)
+                var sum = 0.0, n = 0
+                for j in 0..<32 {
+                    let a = Double(j) / 32 * 2 * .pi
+                    let ca = cos(a), sa = sin(a) * v.z
+                    let ux = ca * tx + sa * nxr, uy = ca * ty + sa * nyr
+                    let ol = 1 + d / r, il = 1 - d / r
+                    let o = im.sample(cx + ux * r * ol, cy + uy * r * ol), ii = im.sample(cx + ux * r * il, cy + uy * r * il)
+                    sum += Double(abs(o - ii)); n += 1
+                }
+                total += sum / Double(n)
+            }
+            return total
+        }
+        func rotated(_ p: MoonPose, axis: Int, angleDeg: Double) -> MoonPose {
+            let a = deg2rad(angleDeg), c = cos(a), s = sin(a)
+            // Drehung im Kamerasystem: R' = Q · R
+            let Q: [Double]
+            switch axis {
+            case 0: Q = [1, 0, 0, 0, c, -s, 0, s, c]
+            case 1: Q = [c, 0, s, 0, 1, 0, -s, 0, c]
+            default: Q = [c, -s, 0, s, c, 0, 0, 0, 1]
+            }
+            var out = p
+            let R = p.rotation
+            var M = [Double](repeating: 0, count: 9)
+            for i in 0..<3 { for j in 0..<3 { var t = 0.0; for m in 0..<3 { t += Q[i * 3 + m] * R[m * 3 + j] }; M[i * 3 + j] = t } }
+            out.rotation = M
+            return out
+        }
+        func withRadius(_ p: MoonPose, _ R: Double) -> MoonPose {
+            var o = p; o.radius = R; o.cx = ex - nx0 / nl * R; o.cy = ey - ny0 / nl * R; return o
+        }
+        let start = evidence(pose)
+        var best = pose, bestE = start
+        for (rStep, aStep) in [(0.02, 1.0), (0.01, 0.5), (0.005, 0.25), (0.0025, 0.12)] {
+            var improved = true, guardN = 0
+            while improved && guardN < 12 {
+                improved = false; guardN += 1
+                var cands: [MoonPose] = [withRadius(best, best.radius * (1 + rStep)), withRadius(best, best.radius * (1 - rStep))]
+                for ax in 0..<3 { cands.append(rotated(best, axis: ax, angleDeg: aStep)); cands.append(rotated(best, axis: ax, angleDeg: -aStep)) }
+                for c in cands {
+                    let e = evidence(c)
+                    if e > bestE * 1.0005 { bestE = e; best = c; improved = true }
+                }
+            }
+        }
+        return (best, start, bestE)
+    }
+
     static func circleFrom(_ a: (Double, Double), _ b: (Double, Double), _ c: (Double, Double)) -> (cx: Double, cy: Double, r: Double)? {
         let d = 2 * (a.0 * (b.1 - c.1) + b.0 * (c.1 - a.1) + c.0 * (a.1 - b.1))
         if abs(d) < 1e-9 { return nil }
@@ -671,6 +747,15 @@ public enum MoonAnalyzer {
                                                             width: img.width, height: img.height, log: info, isCancelled: { false })
             }
             try check()
+            if let l = limb, let p = pose {
+                step("Mondlage wird an den Kraterwällen nachjustiert", 0.75)
+                let (np, e0, e1) = refinePoseByRims(p, image: img, limb: l)
+                var q = np; q.matches = p.matches; q.candidates = p.candidates
+                pose = q
+                info(String(format: "Feinjustierung an den Kraterwällen: Wall-Signal %+.0f %%, Radius %+.1f %%, Drehung %.2f°",
+                            (e1 / max(e0, 1e-9) - 1) * 100, (np.radius / p.radius - 1) * 100,
+                            MoonRegistration.angleBetween(np, p)).replacingOccurrences(of: ".", with: ","))
+            }
             if let p = pose {
                 kmPerPx = p.kmPerPixel / f
                 let se = p.subEarth
