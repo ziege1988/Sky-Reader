@@ -1,7 +1,8 @@
-name: Höhenmodell (Test)
+name: Höhenmodell
 
-# Lädt das globale LOLA-Höhenmodell (NASA/USGS) und erzeugt eine verkleinerte Fassung der Mond-Vorderseite
-# für Versuche mit gerenderten Mondansichten. Ergebnis als Anhang am Vorab-Release „dem-test“.
+# Lädt das globale LOLA-Höhenmodell (NASA/USGS, gemeinfrei) und erzeugt daraus die Datei für die App:
+# Vorderseite ±120° Länge, 32 Pixel pro Grad (≈ 950 m), Int16 roh (Einheit 0,5 m), dazu eine JSON-Beschreibung.
+# Ablage als Anhang am Vorab-Release „dem-test“; der App-Build lädt sie von dort.
 on:
   workflow_dispatch:
 
@@ -32,10 +33,14 @@ jobs:
           # 32 Pixel pro Grad (≈ 950 m), ganze Kugel, Höhe in Metern (Int16)
           gdal_translate -q -ot Int16 -outsize 11520 5760 -r average --config GDAL_HTTP_MAX_RETRY 5 "/vsicurl/$SRC" out/moon_dem_32ppd.tif
           gdalinfo out/moon_dem_32ppd.tif | head -30
+          # Vorderseite ±120° Länge als Rohdatei (Int16, little endian), Zeile 0 = +90° Breite
+          gdal_translate -q -of ENVI -ot Int16 -srcwin 1920 0 7680 5760 out/moon_dem_32ppd.tif out/moon_dem_nearside.bin
+          rm -f out/moon_dem_nearside.hdr out/moon_dem_nearside.bin.aux.xml
+          printf '{"format":"int16le","width":7680,"height":5760,"ppd":32,"lonMin":-120,"latMax":90,"metersPerUnit":0.5,"source":"LRO LOLA LDEM 118 m (NASA/GSFC, USGS), verkleinert"}' > out/moon_dem_nearside.json
           ls -la out
       - name: Als Vorab-Release ablegen
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           gh release view dem-test >/dev/null 2>&1 || gh release create dem-test --prerelease --title "Höhenmodell (Test)" --notes "Testdaten: verkleinertes LOLA-Höhenmodell"
-          gh release upload dem-test out/moon_dem_32ppd.tif --clobber
+          gh release upload dem-test out/moon_dem_32ppd.tif out/moon_dem_nearside.bin out/moon_dem_nearside.json --clobber

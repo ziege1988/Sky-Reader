@@ -31,6 +31,12 @@ jobs:
           sudo xcode-select -s /Applications/Xcode_16.4.app 2>/dev/null || true
           xcodebuild -version
           swift --version
+      - name: Höhenmodell laden
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release download dem-test -p 'moon_dem_nearside.*' -D Resources/Catalogs -R "${GITHUB_REPOSITORY}" --clobber || echo "Höhenmodell nicht verfügbar – App ohne Reliefvergleich"
+          ls -la Resources/Catalogs
       - name: Engine testen
         run: swift test -c release
       - name: App bauen

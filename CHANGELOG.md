@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.9.0
+- **Mondrelief (LOLA-Höhenmodell der NASA-Sonde LRO, ca. 950 m Auflösung)**: Sky Reader berechnet, wie der Mond bei der ermittelten Lage und dem Sonnenstand zur Aufnahmezeit aussehen muss – mit Hangbeleuchtung und Schlagschatten – und vergleicht das mit dem Foto.
+  - **Aufnahmezeit über den Schattenwurf**: Ist die Licht-Schatten-Grenze im Bild, wird die Uhrzeit auf etwa ±1–2 Stunden bestimmt (vorher ±7 h). Der Vorschlag im Datums-Popup nutzt das bereits; weicht eine eingegebene Uhrzeit deutlich ab, gibt es einen Hinweis.
+  - **Qualitätsanzeige** „Übereinstimmung mit dem Mondrelief“ in der Zusammenfassung.
+  - **Vergleichsansicht** (Knopf „Mit dem Mondrelief vergleichen“): Foto und berechnete Ansicht überblenden, blinken lassen oder nebeneinander zeigen.
+- Das Höhenmodell (88 MB, Vorderseite ±120° Länge) wird beim Build eingebunden; die App wird dadurch entsprechend größer.
+
 ## 1.8.1
 - Die Feinjustierung an den Kraterwällen gilt jetzt auch für Mondfotos ohne sichtbaren Mondrand (mit Aufnahmedatum); dort werden zusätzlich Maßstab und Bildlage nachgeführt.
 

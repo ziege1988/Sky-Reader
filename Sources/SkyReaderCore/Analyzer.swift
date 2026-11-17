@@ -40,6 +40,19 @@ public struct AnalysisResult: Codable, Sendable {
     public var summary: ObjectInfo
     public var wcs: WCS?
     public var warnings: [String]
+    /// Mondaufnahmen: aus dem Höhenmodell berechnete Ansicht (gleicher Bildausschnitt) für den Vergleich
+    public var relief: ReliefImage? = nil
+}
+
+/// Graustufenbild der berechneten Mondansicht (8 Bit, Zeilen von oben)
+public struct ReliefImage: Codable, Sendable {
+    public var width: Int
+    public var height: Int
+    public var pixels: Data
+    /// Übereinstimmung mit dem Foto (0…1)
+    public var score: Double
+    /// Zeitpunkt, für den der Sonnenstand berechnet wurde
+    public var date: Date
 }
 
 public struct AnalysisSettings: Codable, Sendable, Equatable {

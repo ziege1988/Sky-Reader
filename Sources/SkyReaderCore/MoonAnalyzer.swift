@@ -685,6 +685,8 @@ public enum MoonAnalyzer {
         // Mit Mondrand: Lage zuerst ohne Datum bestimmen – daraus lässt sich das Aufnahmedatum schätzen
         var pose0: MoonPose?
         var estimate: MoonDateEstimate?
+        var reliefTarget: MoonRelief.Target?
+        var reliefFit: MoonRelief.TimeFit?
         var estimateNote: String?
         if settings.moonDate == nil {
             if let l = limb {
@@ -703,6 +705,19 @@ public enum MoonAnalyzer {
                     step("Aufnahmedatum wird aus dem Bild berechnet", 0.55)
                     let obs: (lat: Double, lon: Double)? = settings.observerLatitude.flatMap { la in settings.observerLongitude.map { (la, $0) } }
                     estimate = MoonDateEstimator.estimate(pose: p, image: img, threshold: detection.threshold, fileNameDate: fileDate, observer: obs)
+                    if var est = estimate, let relief = MoonRelief.shared() {
+                        step("Uhrzeit wird über den Schattenwurf im Mondrelief bestimmt", 0.57)
+                        reliefTarget = reliefTarget ?? MoonRelief.target(from: img)
+                        // nur übernehmen, wenn der Schattenwurf die Uhrzeit wirklich eingrenzt (Terminator im Bild)
+                        if let fit = relief.fitTime(pose: p, near: est.best.date, windowHours: 12, target: reliefTarget!, isCancelled: { false }),
+                           fit.uncertaintyHours <= 6 {
+                            est.best.date = fit.date
+                            est.timeUncertaintyHours = min(est.timeUncertaintyHours, fit.uncertaintyHours)
+                            est.reliefRefined = true
+                            estimate = est
+                            reliefFit = fit
+                        }
+                    }
                     if let est = estimate {
                         let df = DateFormatter(); df.locale = Locale(identifier: "de_DE"); df.dateStyle = .long; df.timeStyle = .short
                         info(String(format: "Datum aus dem Bild: %@ (± %.0f h, %@)%@", df.string(from: est.best.date), est.timeUncertaintyHours,
@@ -784,6 +799,43 @@ public enum MoonAnalyzer {
             }
         } else {
             warn("Ohne sichtbaren Mondrand und ohne Aufnahmedatum ist keine Zuordnung zu offiziellen Kraternamen möglich – Krater werden nummeriert.")
+        }
+        // Vergleich mit dem Mondrelief (LOLA-Höhenmodell): Aufnahmezeit über den Schattenwurf, Qualitätsmaß, Vergleichsbild
+        var reliefImage: ReliefImage?
+        var reliefFacts: [InfoFact] = []
+        if let p = pose, let e = ephem, let relief = MoonRelief.shared() {
+            step("Mondrelief wird berechnet und mit dem Foto verglichen", 0.78)
+            let t = reliefTarget ?? MoonRelief.target(from: img)
+            var fit = reliefFit
+            if fit == nil || abs(fit!.date.timeIntervalSince(e.date)) > 3600 || !(pose0.map { MoonRegistration.angleBetween($0, p) < 0.01 } ?? false) {
+                fit = relief.fitTime(pose: p, near: e.date, windowHours: 12, target: t, isCancelled: { false })
+            }
+            try check()
+            let tf = DateFormatter(); tf.locale = Locale(identifier: "de_DE"); tf.dateFormat = "d. MMMM yyyy, HH:mm"
+            if let fit = fit {
+                let used = relief.similarity(pose: p, sun: e.subSolarVector, target: t)
+                let showFit = fit.score > used.score + 0.002
+                let score = max(fit.score, used.score)
+                reliefFacts.append(InfoFact("Übereinstimmung mit dem Mondrelief", String(format: "%.0f %%", max(0, score) * 100)))
+                let unc = Int(fit.uncertaintyHours.rounded())
+                if fit.uncertaintyHours <= 6 {
+                    reliefFacts.append(InfoFact("Aufnahmezeit laut Schattenwurf", "ca. \(tf.string(from: fit.date)) Uhr (± \(max(1, unc)) h)"))
+                    let diffH = fit.date.timeIntervalSince(e.date) / 3600
+                    if dateIsEstimate {
+                        ephem = MoonEphemeris(date: fit.date)
+                    } else if abs(diffH) > max(2.5, 2 * fit.uncertaintyHours) {
+                        warn(String(format: "Der Schattenwurf im Foto passt eher zu %@ Uhr (%+.0f h gegenüber dem angegebenen Zeitpunkt).",
+                                    tf.string(from: fit.date), diffH))
+                    }
+                }
+                ok(String(format: "Mondrelief: Übereinstimmung %.0f %%, Schattenwurf passt am besten zu %@ Uhr (± %d h)",
+                          score * 100, tf.string(from: fit.date), max(1, unc)))
+                let pixels = showFit ? fit.render : used.render
+                reliefImage = ReliefImage(width: t.width, height: t.height, pixels: MoonRelief.to8Bit(pixels), score: score,
+                                          date: showFit ? fit.date : e.date)
+            }
+        } else if pose != nil, ephem != nil, MoonRelief.shared() == nil {
+            info("Höhenmodell nicht installiert – kein Reliefvergleich.")
         }
         step("Kraterdetails werden berechnet", 0.8)
         var objs: [FoundObject] = []
@@ -923,6 +975,7 @@ public enum MoonAnalyzer {
                 if a.moon < 0 { warn(String(format: "Der Mond stand zum angegebenen Zeitpunkt am Beobachtungsort unter dem Horizont (%.0f°) – bitte Datum und Uhrzeit prüfen.", a.moon)) }
             }
         }
+        facts += reliefFacts
         if let p = pose {
             let se = p.subEarth
             facts.append(InfoFact("Kraternamen", "\(p.matches) erkannte Krater dem IAU-Katalog zugeordnet"))
@@ -941,7 +994,7 @@ public enum MoonAnalyzer {
             layman: "Jeder Krater ist die Narbe eines Einschlags: Gesteinsbrocken aus dem All prallten mit vielfacher Gewehrkugelgeschwindigkeit auf den Mond. Weil der Mond keine Luft und kein Wetter hat, bleiben diese Spuren Milliarden Jahre erhalten. Besonders plastisch wirken Krater nahe der Licht-Schatten-Grenze, wo die Sonne flach einfällt.")
         ok("Analyse abgeschlossen – \(objs.count) Krater.")
         return AnalysisResult(kind: .moon, imageWidth: full.width, imageHeight: full.height, objects: objs, summary: summary,
-                              wcs: nil, warnings: limb == nil ? ["Mondrand nicht im Bild"] : [])
+                              wcs: nil, warnings: limb == nil ? ["Mondrand nicht im Bild"] : [], relief: reliefImage)
     }
 
     static func numberedCrater(_ c: DetectedCrater, n: Int, f: Double, kmPerPx: Double?, limb: LimbCircle?) -> FoundObject {

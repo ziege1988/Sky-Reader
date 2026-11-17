@@ -54,6 +54,13 @@ enum SelfTest {
                     snap(window, "09b-mond-krater-details", out)
                     await exportDialog(state: state, window: window, out: out, name: "09c-mond-export-live", hide: [r.objects[1].id])
                 }
+                if state.result?.relief != nil {
+                    state.showRelief = true
+                    try? await Task.sleep(nanoseconds: 1_800_000_000)
+                    snapSheet(window, "09d-mond-relief-vergleich", out)
+                    state.showRelief = false
+                    try? await Task.sleep(nanoseconds: 900_000_000)
+                }
                 try? state.reportText().write(to: out.appendingPathComponent("report-mond.txt"), atomically: true, encoding: .utf8)
                 if var e = journal.makeEntry(from: state) {
                     e.notes = "Zunehmende Sichel, Nordostrand mit Mare Crisium. Ruhige Luft."; e.equipment = "Refraktor, Planetenkamera"

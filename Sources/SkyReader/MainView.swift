@@ -33,6 +33,9 @@ struct MainView: View {
         .sheet(isPresented: $state.showExport) {
             ExportView().environmentObject(state)
         }
+        .sheet(isPresented: $state.showRelief) {
+            ReliefCompareView().environmentObject(state)
+        }
         .sheet(isPresented: $state.showSettings) {
             SettingsView(showsDone: true)
                 .environmentObject(state)

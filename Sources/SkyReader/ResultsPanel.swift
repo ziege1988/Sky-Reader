@@ -74,7 +74,8 @@ struct ResultList: View {
         ScrollViewReader { proxy in
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 10) {
-                    SummaryCard(info: result.summary, kind: result.kind, count: result.objects.count)
+                    SummaryCard(info: result.summary, kind: result.kind, count: result.objects.count,
+                                hasRelief: result.relief != nil, showRelief: { state.showRelief = true })
                     if result.objects.isEmpty {
                         Text("Keine Objekte gefunden.").font(.system(size: 12)).foregroundStyle(Theme.textSecondary).padding(.top, 8)
                     }
@@ -97,6 +98,8 @@ struct SummaryCard: View {
     let info: ObjectInfo
     let kind: SceneKind
     let count: Int
+    var hasRelief = false
+    var showRelief: () -> Void = {}
     var body: some View {
         PanelCard {
             VStack(alignment: .leading, spacing: 10) {
@@ -107,6 +110,11 @@ struct SummaryCard: View {
                         .font(.system(size: 11, weight: .medium)).foregroundStyle(Theme.accent)
                 }
                 FactGrid(facts: info.facts)
+                if hasRelief {
+                    Button(action: showRelief) { Label("Mit dem Mondrelief vergleichen", systemImage: "mountain.2") }
+                        .buttonStyle(SkyButtonStyle())
+                        .help("Foto und aus dem Höhenmodell berechnete Ansicht überblenden")
+                }
                 if !info.layman.isEmpty { Text(info.layman).font(.system(size: 12)).foregroundStyle(Theme.textSecondary).fixedSize(horizontal: false, vertical: true) }
                 if kind == .moon {
                     TextSection(title: "Wissenschaft", text: info.scientific)

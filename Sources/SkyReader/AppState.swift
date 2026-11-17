@@ -34,6 +34,7 @@ final class AppState: ObservableObject {
     @Published var selectedObjectID: String?
     @Published var showAnalysisSheet = false
     @Published var showExport = false
+    @Published var showRelief = false
     @Published var showSettings = false
     @Published var dropError: String?
     /// Offene Rückfrage nach dem Aufnahmedatum einer Mondaufnahme

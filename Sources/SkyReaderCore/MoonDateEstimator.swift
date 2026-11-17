@@ -40,6 +40,8 @@ public struct MoonDateEstimate: Sendable {
     public var usedFileNameDate: Bool
     /// Beobachtungsort berücksichtigt (Mond über dem Horizont)
     public var usedObserver: Bool = false
+    /// Uhrzeit über den Schattenwurf im Mondrelief nachgeschärft
+    public var reliefRefined: Bool = false
 }
 
 public enum MoonDateEstimator {
