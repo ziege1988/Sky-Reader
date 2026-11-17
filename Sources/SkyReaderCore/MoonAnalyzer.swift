@@ -768,6 +768,12 @@ public enum MoonAnalyzer {
                             (e1 / max(e0, 1e-9) - 1) * 100, (np.radius / p.radius - 1) * 100,
                             MoonRegistration.angleBetween(np, p)).replacingOccurrences(of: ".", with: ","))
             }
+            if let p = pose, let path = ProcessInfo.processInfo.environment["SR_POSE_OUT"] {
+                // Entwicklung: Mondlage (in Originalpixeln) für externe Versuche ablegen
+                let d: [String: Any] = ["rotation": p.rotation, "mirrored": p.mirrored, "cx": p.cx * f, "cy": p.cy * f, "radius": p.radius * f,
+                                        "width": full.width, "height": full.height]
+                if let data = try? JSONSerialization.data(withJSONObject: d) { try? data.write(to: URL(fileURLWithPath: path)) }
+            }
             if let p = pose {
                 kmPerPx = p.kmPerPixel / f
                 let se = p.subEarth
