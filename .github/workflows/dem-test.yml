@@ -1,0 +1,41 @@
+name: Höhenmodell (Test)
+
+# Lädt das globale LOLA-Höhenmodell (NASA/USGS) und erzeugt eine verkleinerte Fassung der Mond-Vorderseite
+# für Versuche mit gerenderten Mondansichten. Ergebnis als Anhang am Vorab-Release „dem-test“.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  dem:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - name: GDAL
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq gdal-bin python3-gdal
+      - name: Höhenmodell laden und verkleinern
+        run: |
+          set -x
+          mkdir -p out
+          for U in \
+            https://planetarymaps.usgs.gov/mosaic/Lunar_LRO_LOLA_Global_LDEM_118m_Mar2014.tif \
+            https://asc-astropedia.s3.us-west-2.amazonaws.com/Moon/LRO/LOLA/Lunar_LRO_LOLA_Global_LDEM_118m_Mar2014.tif \
+            https://pds-geosciences.wustl.edu/lro/lro-l-lola-3-rdr-v1/lrolol_1xxx/data/lola_gdr/cylindrical/img/LDEM_64.IMG \
+            https://pds-geosciences.wustl.edu/lro/lro-l-lola-3-rdr-v1/lrolol_1xxx/data/lola_gdr/cylindrical/img/LDEM_16.IMG ; do
+            echo "== $U"
+            if gdalinfo "/vsicurl/$U" > info.txt 2>&1; then head -40 info.txt; SRC="$U"; break; else tail -3 info.txt; fi
+          done
+          test -n "$SRC"
+          # 32 Pixel pro Grad (≈ 950 m), ganze Kugel, Höhe in Metern (Int16)
+          gdal_translate -q -ot Int16 -outsize 11520 5760 -r average --config GDAL_HTTP_MAX_RETRY 5 "/vsicurl/$SRC" out/moon_dem_32ppd.tif
+          gdalinfo out/moon_dem_32ppd.tif | head -30
+          ls -la out
+      - name: Als Vorab-Release ablegen
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release view dem-test >/dev/null 2>&1 || gh release create dem-test --prerelease --title "Höhenmodell (Test)" --notes "Testdaten: verkleinertes LOLA-Höhenmodell"
+          gh release upload dem-test out/moon_dem_32ppd.tif --clobber
