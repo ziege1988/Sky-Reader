@@ -250,17 +250,19 @@ public enum MoonAnalyzer {
     /// Mondlage am Bild selbst nachschärfen: Für alle Katalogkrater ab 15 km wird an der vorhergesagten Stelle gemessen,
     /// ob dort ein Kraterwall liegt (Helligkeitssprung quer zum Rand, randnah als Ellipse). Radius (bei festem Randpunkt)
     /// und Drehung werden so justiert, dass die Summe dieser Wall-Signale maximal wird. Unabhängig von der Kratererkennung.
-    public static func refinePoseByRims(_ pose: MoonPose, image input: GrayImage, limb: LimbCircle) -> (MoonPose, Double, Double) {
+    public static func refinePoseByRims(_ pose: MoonPose, image input: GrayImage, limb: LimbCircle?) -> (MoonPose, Double, Double) {
         let (img0, f) = input.limited(maxDimension: 1700)
         let k = 1.0 / Double(f)   // Analysebild → verkleinertes Bild
         let im = img0.boxBlurred(radius: 1)
         let w = Double(img0.width), h = Double(img0.height)
         let cat = MoonRegistration.catalog().filter { $0.d >= 15 && abs($0.lon) < 100 }
         let vecs = cat.map { Vec3(ra: $0.lon, dec: $0.lat) }
-        // fester Randpunkt (nächster Randpunkt zur Bildmitte) wie in der Registrierung
+        // Mit Mondrand: fester Randpunkt (nächster Randpunkt zur Bildmitte) wie in der Registrierung.
+        // Ohne Mondrand: Maßstab um die Bildmitte, zusätzlich freie Verschiebung.
         let mx = Double(input.width) / 2, my = Double(input.height) / 2
-        let nx0 = mx - limb.cx, ny0 = my - limb.cy, nl = max(hypot(nx0, ny0), 1e-9)
-        let ex = limb.cx + nx0 / nl * limb.r, ey = limb.cy + ny0 / nl * limb.r
+        let lc = limb ?? LimbCircle(cx: pose.cx, cy: pose.cy, r: pose.radius, inliers: 0)
+        let nx0 = mx - lc.cx, ny0 = my - lc.cy, nl = max(hypot(nx0, ny0), 1e-9)
+        let ex = lc.cx + nx0 / nl * lc.r, ey = lc.cy + ny0 / nl * lc.r
         func evidence(_ p: MoonPose) -> Double {
             var total = 0.0
             for (i, c) in cat.enumerated() {
@@ -304,8 +306,13 @@ public enum MoonAnalyzer {
             return out
         }
         func withRadius(_ p: MoonPose, _ R: Double) -> MoonPose {
-            var o = p; o.radius = R; o.cx = ex - nx0 / nl * R; o.cy = ey - ny0 / nl * R; return o
+            var o = p
+            if limb != nil { o.cx = ex - nx0 / nl * R; o.cy = ey - ny0 / nl * R }
+            else { let s = R / p.radius; o.cx = mx + (p.cx - mx) * s; o.cy = my + (p.cy - my) * s }
+            o.radius = R
+            return o
         }
+        func shifted(_ p: MoonPose, _ dx: Double, _ dy: Double) -> MoonPose { var o = p; o.cx += dx; o.cy += dy; return o }
         let start = evidence(pose)
         var best = pose, bestE = start
         for (rStep, aStep) in [(0.02, 1.0), (0.01, 0.5), (0.005, 0.25), (0.0025, 0.12)] {
@@ -313,6 +320,11 @@ public enum MoonAnalyzer {
             while improved && guardN < 12 {
                 improved = false; guardN += 1
                 var cands: [MoonPose] = [withRadius(best, best.radius * (1 + rStep)), withRadius(best, best.radius * (1 - rStep))]
+                if limb == nil {
+                    // Verschiebung in Originalpixeln, gekoppelt an den Drehschritt (gleiche Größenordnung auf der Scheibe)
+                    let t = max(1, best.radius * deg2rad(aStep))
+                    cands += [shifted(best, t, 0), shifted(best, -t, 0), shifted(best, 0, t), shifted(best, 0, -t)]
+                }
                 for ax in 0..<3 { cands.append(rotated(best, axis: ax, angleDeg: aStep)); cands.append(rotated(best, axis: ax, angleDeg: -aStep)) }
                 for c in cands {
                     let e = evidence(c)
@@ -747,9 +759,9 @@ public enum MoonAnalyzer {
                                                             width: img.width, height: img.height, log: info, isCancelled: { false })
             }
             try check()
-            if let l = limb, let p = pose {
+            if let p = pose {
                 step("Mondlage wird an den Kraterwällen nachjustiert", 0.75)
-                let (np, e0, e1) = refinePoseByRims(p, image: img, limb: l)
+                let (np, e0, e1) = refinePoseByRims(p, image: img, limb: limb)
                 var q = np; q.matches = p.matches; q.candidates = p.candidates
                 pose = q
                 info(String(format: "Feinjustierung an den Kraterwällen: Wall-Signal %+.0f %%, Radius %+.1f %%, Drehung %.2f°",

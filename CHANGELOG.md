@@ -1,5 +1,8 @@
 # Changelog
 
+## 1.8.1
+- Die Feinjustierung an den Kraterwällen gilt jetzt auch für Mondfotos ohne sichtbaren Mondrand (mit Aufnahmedatum); dort werden zusätzlich Maßstab und Bildlage nachgeführt.
+
 ## 1.8.0
 - **Genauere Kraterbeschriftung bei Mondbildern mit Rand**: Nach der Zuordnung wird die Mondlage direkt am Foto nachjustiert. Für alle Katalogkrater ab 15 km wird geprüft, ob an der vorhergesagten Stelle ein Kraterwall liegt; Mondradius und Drehung werden so eingestellt, dass möglichst viele Wälle übereinstimmen. Besonders weit vom sichtbaren Mondrand entfernte Krater (z. B. Cleomedes, Geminus, Endymion, Hercules) sitzen jetzt deutlich genauer.
 
