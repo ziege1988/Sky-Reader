@@ -1,5 +1,8 @@
 # Changelog
 
+## 1.9.1
+- Aufnahmezeit laut Schattenwurf wird nur noch angezeigt, wenn sie auf ±3 Stunden oder genauer bestimmt ist (bei Bildern ohne nennenswerte Licht-Schatten-Grenze war die Angabe zu ungenau).
+
 ## 1.9.0
 - **Mondrelief (LOLA-Höhenmodell der NASA-Sonde LRO, ca. 950 m Auflösung)**: Sky Reader berechnet, wie der Mond bei der ermittelten Lage und dem Sonnenstand zur Aufnahmezeit aussehen muss – mit Hangbeleuchtung und Schlagschatten – und vergleicht das mit dem Foto.
   - **Aufnahmezeit über den Schattenwurf**: Ist die Licht-Schatten-Grenze im Bild, wird die Uhrzeit auf etwa ±1–2 Stunden bestimmt (vorher ±7 h). Der Vorschlag im Datums-Popup nutzt das bereits; weicht eine eingegebene Uhrzeit deutlich ab, gibt es einen Hinweis.

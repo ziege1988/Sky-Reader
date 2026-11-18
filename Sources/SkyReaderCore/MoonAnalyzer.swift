@@ -710,7 +710,7 @@ public enum MoonAnalyzer {
                         reliefTarget = reliefTarget ?? MoonRelief.target(from: img)
                         // nur übernehmen, wenn der Schattenwurf die Uhrzeit wirklich eingrenzt (Terminator im Bild)
                         if let fit = relief.fitTime(pose: p, near: est.best.date, windowHours: 12, target: reliefTarget!, isCancelled: { false }),
-                           fit.uncertaintyHours <= 6 {
+                           fit.uncertaintyHours <= 3 {
                             est.best.date = fit.date
                             est.timeUncertaintyHours = min(est.timeUncertaintyHours, fit.uncertaintyHours)
                             est.reliefRefined = true
@@ -818,7 +818,8 @@ public enum MoonAnalyzer {
                 let score = max(fit.score, used.score)
                 reliefFacts.append(InfoFact("Übereinstimmung mit dem Mondrelief", String(format: "%.0f %%", max(0, score) * 100)))
                 let unc = Int(fit.uncertaintyHours.rounded())
-                if fit.uncertaintyHours <= 6 {
+                // nur aussagekräftig, wenn die Licht-Schatten-Grenze die Uhrzeit wirklich eingrenzt
+                if fit.uncertaintyHours <= 3 {
                     reliefFacts.append(InfoFact("Aufnahmezeit laut Schattenwurf", "ca. \(tf.string(from: fit.date)) Uhr (± \(max(1, unc)) h)"))
                     let diffH = fit.date.timeIntervalSince(e.date) / 3600
                     if dateIsEstimate {
@@ -828,8 +829,12 @@ public enum MoonAnalyzer {
                                     tf.string(from: fit.date), diffH))
                     }
                 }
-                ok(String(format: "Mondrelief: Übereinstimmung %.0f %%, Schattenwurf passt am besten zu %@ Uhr (± %d h)",
-                          score * 100, tf.string(from: fit.date), max(1, unc)))
+                if fit.uncertaintyHours <= 3 {
+                    ok(String(format: "Mondrelief: Übereinstimmung %.0f %%, Schattenwurf passt am besten zu %@ Uhr (± %d h)",
+                              score * 100, tf.string(from: fit.date), max(1, unc)))
+                } else {
+                    ok(String(format: "Mondrelief: Übereinstimmung %.0f %% – zu wenig Licht-Schatten-Grenze im Bild, um die Uhrzeit einzugrenzen", score * 100))
+                }
                 let pixels = showFit ? fit.render : used.render
                 reliefImage = ReliefImage(width: t.width, height: t.height, pixels: MoonRelief.to8Bit(pixels), score: score,
                                           date: showFit ? fit.date : e.date)
