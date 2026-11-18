@@ -22,6 +22,8 @@ final class Updater: ObservableObject {
     @Published var checking = false
     @Published var downloading = false
     @Published var downloadProgress: Double = 0
+    /// macOS verweigert das Ändern des App-Pakets (Datenschutz & Sicherheit → App-Verwaltung)
+    @Published var needsAppManagement = false
 
     private var observation: NSKeyValueObservation?
 
@@ -95,6 +97,14 @@ final class Updater: ObservableObject {
             NSWorkspace.shared.open(rel.pageURL)
             return
         }
+        // macOS-Schutz „App-Verwaltung“: Darf Sky Reader sein eigenes App-Paket ändern?
+        guard Updater.canModifyBundle(appURL) else {
+            Updater.log("Vorabprüfung: App-Paket nicht änderbar (App-Verwaltung)")
+            needsAppManagement = true
+            status = "macOS erlaubt Sky Reader noch nicht, sich selbst zu aktualisieren."
+            return
+        }
+        needsAppManagement = false
         downloading = true
         downloadProgress = 0
         status = "Update wird geladen …"
@@ -139,6 +149,50 @@ final class Updater: ObservableObject {
         }
     }
 
+    /// Schreibprobe im eigenen App-Paket – scheitert, wenn macOS die „App-Verwaltung“ nicht erlaubt
+    static func canModifyBundle(_ app: URL) -> Bool {
+        let probe = app.appendingPathComponent("Contents/.update-probe-\(UUID().uuidString)")
+        do {
+            try Data("ok".utf8).write(to: probe)
+            try FileManager.default.removeItem(at: probe)
+            return true
+        } catch {
+            return false
+        }
+    }
+
+    static let appManagementSettings = URL(string: "x-apple.systempreferences:com.apple.settings.PrivacySecurity.extension?Privacy_AppBundles")!
+
+    /// Merker für einen gescheiterten Austausch (wird beim nächsten Start angezeigt)
+    static var failureMarker: URL {
+        FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Logs/Sky Reader/update-failed.txt")
+    }
+
+    /// Beim Start: Ist das letzte Update gescheitert? Dann erklären und Hilfe anbieten.
+    func checkPreviousFailure() {
+        let m = Updater.failureMarker
+        guard let text = try? String(contentsOf: m, encoding: .utf8) else { return }
+        try? FileManager.default.removeItem(at: m)
+        let newAppPath = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        let a = NSAlert()
+        a.messageText = "Das Update konnte nicht installiert werden"
+        a.informativeText = """
+        macOS hat verhindert, dass Sky Reader sich selbst ersetzt (Schutzfunktion „App-Verwaltung“).
+
+        So geht es: Systemeinstellungen → Datenschutz & Sicherheit → App-Verwaltung → Sky Reader einschalten. Danach das Update erneut starten.
+
+        Alternativ liegt die neue Version bereit\(newAppPath.isEmpty ? "" : " unter „\((newAppPath as NSString).abbreviatingWithTildeInPath)“") – einfach in den Ordner „Programme“ ziehen und ersetzen.
+        """
+        a.addButton(withTitle: "Systemeinstellungen öffnen")
+        if !newAppPath.isEmpty { a.addButton(withTitle: "Neue Version im Finder zeigen") }
+        a.addButton(withTitle: "Später")
+        let r = a.runModal()
+        if r == .alertFirstButtonReturn { NSWorkspace.shared.open(Updater.appManagementSettings) }
+        else if r == .alertSecondButtonReturn, !newAppPath.isEmpty {
+            NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: newAppPath)])
+        }
+    }
+
     /// Protokoll unter ~/Library/Logs/Sky Reader/update.log (zur Fehlersuche)
     nonisolated static func log(_ msg: String) {
         let dir = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Logs/Sky Reader")
@@ -167,10 +221,16 @@ final class Updater: ObservableObject {
         log "alte App beendet, ersetze $DEST"
         BACKUP="$DEST.old-update"
         rm -rf "$BACKUP"
-        if mv "$DEST" "$BACKUP" && /usr/bin/ditto "$NEW" "$DEST"; then
+        if mv "$DEST" "$BACKUP" 2>>"$LOG" && /usr/bin/ditto "$NEW" "$DEST" 2>>"$LOG"; then
           rm -rf "$BACKUP"; log "neue Version installiert"
         else
-          log "FEHLER beim Ersetzen – alte Version wiederhergestellt"; rm -rf "$DEST"; mv "$BACKUP" "$DEST"
+          log "FEHLER beim Ersetzen (vermutlich macOS-App-Verwaltung) – alte Version bleibt"
+          if [ -d "$BACKUP" ]; then rm -rf "$DEST"; mv "$BACKUP" "$DEST"; fi
+          # neue Version für die manuelle Installation sichern
+          SAVE="$HOME/Downloads/Sky Reader (neue Version).app"
+          rm -rf "$SAVE"; /usr/bin/ditto "$NEW" "$SAVE" && /usr/bin/xattr -dr com.apple.quarantine "$SAVE" 2>/dev/null
+          echo "$SAVE" > "$LOGDIR/update-failed.txt"
+          log "neue Version gesichert: $SAVE"
         fi
         /usr/bin/xattr -dr com.apple.quarantine "$DEST" 2>/dev/null
         /System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister -f "$DEST" 2>/dev/null
@@ -214,6 +274,20 @@ struct UpdateSheet: View {
                 ProgressView(value: updater.downloadProgress).tint(Theme.accent)
             }
             Text(updater.status).font(.system(size: 11)).foregroundStyle(Theme.textSecondary)
+            if updater.needsAppManagement {
+                VStack(alignment: .leading, spacing: 8) {
+                    Label("Einmalige Freigabe nötig", systemImage: "lock.shield").font(.system(size: 12, weight: .semibold)).foregroundStyle(Theme.warning)
+                    Text("macOS schützt Apps im Ordner „Programme“ vor Veränderungen. Damit Sky Reader sich selbst aktualisieren kann: Systemeinstellungen → Datenschutz & Sicherheit → App-Verwaltung → Sky Reader einschalten. Danach Sky Reader neu starten und „Jetzt installieren“ wählen.")
+                        .font(.system(size: 11)).fixedSize(horizontal: false, vertical: true)
+                    HStack {
+                        Button("Systemeinstellungen öffnen") { NSWorkspace.shared.open(Updater.appManagementSettings) }
+                            .buttonStyle(SkyButtonStyle(prominent: true))
+                        Button("Manuell laden (DMG)") { NSWorkspace.shared.open(release.pageURL) }.buttonStyle(SkyButtonStyle())
+                    }
+                }
+                .padding(10)
+                .background(RoundedRectangle(cornerRadius: 8).fill(Theme.panel))
+            }
             HStack {
                 Button("Release-Seite") { NSWorkspace.shared.open(release.pageURL) }.buttonStyle(SkyButtonStyle())
                 Spacer()

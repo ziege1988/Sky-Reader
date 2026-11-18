@@ -145,6 +145,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
                          out: URL(fileURLWithPath: args[i + 2]), state: state, journal: journal, window: w)
             return
         }
+        // Ist das letzte Update gescheitert? Dann erklären (nach dem Erscheinen des Hauptfensters)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { MainActor.assumeIsolated { self.updater.checkPreviousFailure() } }
         if updater.autoCheck {
             let up = updater
             DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { MainActor.assumeIsolated { up.check(userInitiated: false) } }

@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.9.3
+- **Update bei macOS-Schutz „App-Verwaltung“**: Sky Reader prüft vor dem Download, ob macOS das Ersetzen der App erlaubt. Falls nicht, erklärt das Update-Fenster die einmalige Freigabe (Systemeinstellungen → Datenschutz & Sicherheit → App-Verwaltung) mit direktem Knopf.
+- Scheitert das Ersetzen dennoch, wird die neue Version im Ordner „Downloads“ abgelegt und beim nächsten Start ein Hinweis mit den nächsten Schritten angezeigt – statt still bei der alten Version zu bleiben.
+
 ## 1.9.2
 - **Update-Neustart robuster**: Das Update-Fenster wird vor dem Beenden geschlossen; hängt das Beenden trotzdem, wird die alte Version nach kurzer Wartezeit hart beendet, bevor die neue Version gestartet wird (vorher konnte macOS die hängende alte Instanz statt der neuen aktivieren). Die neue Version wird bei macOS angemeldet und als eigene Instanz gestartet.
 - Update-Protokoll unter `~/Library/Logs/Sky Reader/update.log` zur Fehlersuche.
