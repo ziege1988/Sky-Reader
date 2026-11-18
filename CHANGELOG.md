@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.9.2
+- **Update-Neustart robuster**: Das Update-Fenster wird vor dem Beenden geschlossen; hängt das Beenden trotzdem, wird die alte Version nach kurzer Wartezeit hart beendet, bevor die neue Version gestartet wird (vorher konnte macOS die hängende alte Instanz statt der neuen aktivieren). Die neue Version wird bei macOS angemeldet und als eigene Instanz gestartet.
+- Update-Protokoll unter `~/Library/Logs/Sky Reader/update.log` zur Fehlersuche.
+
 ## 1.9.1
 - Aufnahmezeit laut Schattenwurf wird nur noch angezeigt, wenn sie auf ±3 Stunden oder genauer bestimmt ist (bei Bildern ohne nennenswerte Licht-Schatten-Grenze war die Angabe zu ungenau).
 

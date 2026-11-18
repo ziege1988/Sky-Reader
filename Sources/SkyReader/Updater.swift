@@ -120,7 +120,17 @@ final class Updater: ObservableObject {
                 downloadProgress = 0.9
                 status = "Installation startet – Sky Reader wird neu gestartet …"
                 try launchInstaller(newApp: newApp, target: appURL, workDir: tmp)
-                try await Task.sleep(nanoseconds: 600_000_000)
+                Updater.log("Installer gestartet, App wird beendet (PID \(ProcessInfo.processInfo.processIdentifier))")
+                try await Task.sleep(nanoseconds: 400_000_000)
+                // Update-Fenster schließen, damit nichts das Beenden blockiert
+                offer = nil
+                NSApp.windows.forEach { w in w.sheets.forEach { w.endSheet($0) } }
+                try await Task.sleep(nanoseconds: 300_000_000)
+                // Sicherheitsnetz: falls das reguläre Beenden hängt, Prozess nach 4 s hart beenden
+                DispatchQueue.global().asyncAfter(deadline: .now() + 4) {
+                    Updater.log("Reguläres Beenden hat nicht gegriffen – Prozess wird beendet")
+                    exit(0)
+                }
                 NSApp.terminate(nil)
             } catch {
                 downloading = false
@@ -129,22 +139,43 @@ final class Updater: ObservableObject {
         }
     }
 
-    /// Externes Skript: wartet auf das Beenden, ersetzt die App, entfernt Quarantäne, startet neu.
+    /// Protokoll unter ~/Library/Logs/Sky Reader/update.log (zur Fehlersuche)
+    nonisolated static func log(_ msg: String) {
+        let dir = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Logs/Sky Reader")
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let url = dir.appendingPathComponent("update.log")
+        let line = "\(ISO8601DateFormatter().string(from: Date())) [App \(AppInfo.version)] \(msg)\n"
+        if let h = try? FileHandle(forWritingTo: url) { h.seekToEndOfFile(); h.write(Data(line.utf8)); try? h.close() }
+        else { try? line.write(to: url, atomically: true, encoding: .utf8) }
+    }
+
+    /// Externes Skript: wartet auf das Beenden (beendet notfalls hart), ersetzt die App, entfernt die Quarantäne,
+    /// meldet die neue Version bei macOS an und startet sie neu. Alles wird protokolliert.
     private func launchInstaller(newApp: URL, target: URL, workDir: URL) throws {
         let script = """
         #!/bin/sh
         PID="$1"; NEW="$2"; DEST="$3"; WORK="$4"
+        LOGDIR="$HOME/Library/Logs/Sky Reader"; mkdir -p "$LOGDIR"; LOG="$LOGDIR/update.log"
+        log() { echo "$(date -u +%Y-%m-%dT%H:%M:%SZ) [Installer] $*" >> "$LOG"; }
+        log "wartet auf Ende von PID $PID"
         i=0
-        while kill -0 "$PID" 2>/dev/null && [ $i -lt 300 ]; do sleep 0.2; i=$((i+1)); done
+        while kill -0 "$PID" 2>/dev/null && [ $i -lt 100 ]; do sleep 0.2; i=$((i+1)); done
+        if kill -0 "$PID" 2>/dev/null; then
+          log "App reagiert nicht – wird beendet (TERM)"; kill -TERM "$PID" 2>/dev/null; sleep 3
+          if kill -0 "$PID" 2>/dev/null; then log "App beendet (KILL)"; kill -KILL "$PID" 2>/dev/null; sleep 1; fi
+        fi
+        log "alte App beendet, ersetze $DEST"
         BACKUP="$DEST.old-update"
         rm -rf "$BACKUP"
         if mv "$DEST" "$BACKUP" && /usr/bin/ditto "$NEW" "$DEST"; then
-          rm -rf "$BACKUP"
+          rm -rf "$BACKUP"; log "neue Version installiert"
         else
-          rm -rf "$DEST"; mv "$BACKUP" "$DEST"
+          log "FEHLER beim Ersetzen – alte Version wiederhergestellt"; rm -rf "$DEST"; mv "$BACKUP" "$DEST"
         fi
         /usr/bin/xattr -dr com.apple.quarantine "$DEST" 2>/dev/null
-        /usr/bin/open "$DEST"
+        /System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister -f "$DEST" 2>/dev/null
+        sleep 1
+        if /usr/bin/open -n "$DEST"; then log "neue Version gestartet"; else log "FEHLER: Start fehlgeschlagen"; fi
         rm -rf "$WORK"
         """
         let sh = workDir.appendingPathComponent("install.sh")
@@ -152,7 +183,7 @@ final class Updater: ObservableObject {
         let p = Process()
         p.executableURL = URL(fileURLWithPath: "/bin/sh")
         p.arguments = [sh.path, "\(ProcessInfo.processInfo.processIdentifier)", newApp.path, target.path, workDir.path]
-        p.standardOutput = nil; p.standardError = nil
+        p.standardOutput = FileHandle.nullDevice; p.standardError = FileHandle.nullDevice; p.standardInput = FileHandle.nullDevice
         try p.run()
     }
 }

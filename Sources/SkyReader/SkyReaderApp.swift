@@ -37,6 +37,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.appearance = NSAppearance(named: .darkAqua)
+        Updater.log("App gestartet aus \(Bundle.main.bundleURL.path)")
         ResourceLocator.overrideDirectory = Bundle.main.resourceURL?.appendingPathComponent("Catalogs")
         showSplash()
         // Kataloge schon während des Splash im Hintergrund laden
